@@ -105,7 +105,7 @@ class DockerContainer(AbstractContainer):
     def stop(self):
         running_id = self.running_container_name()
         print_bold("Stopping {name} container {container}".format(name=self.name, container=running_id))
-        if running_id:
+        if running_id and self.is_running():
             exec_verbose("docker stop {id}".format(id=running_id))
         else:
             logging.info("no known instance running")
@@ -115,7 +115,7 @@ class DockerContainer(AbstractContainer):
         new_name = self.name + datetime.datetime.now().strftime("-%Y-%m-%d_%H_%M_%S")
         docker_options = ""
         for linked_container in self.links:
-            assert linked_container.is_running(), "linked container {} is not running"
+            assert linked_container.is_running(), "linked container {} is not running".format(self.links)
             docker_options += "--link={name}:{alias} ".format(name=linked_container.running_container_name(), alias=linked_container.name)
         docker_options += self.docker_options
         cmdline = "docker run -d --memory=2g  --name={new_name} {docker_opts} {image_name} ".format(new_name=new_name, docker_opts=docker_options, image_name=self.image_name)
@@ -225,6 +225,7 @@ def rebuild_many(containers, ignore_cache=False):
     restart_many(containers)
 
 def restart_many(containers):
+    # TODO also restart containers that are linked to the given ones - here and also at rebuild
     for container in containers:
         container.stop()
         container.start()
@@ -347,9 +348,10 @@ if __name__== "__main__":
     # parse common arguments
     given_containers = config_containers
     if arguments["<container>"]:
-            given_containers = [c for c in config_containers if (c.name in arguments["<container>"])]
-            if len(given_containers) != len(arguments["<container>"]):
-                raise Exception("Unknown container name(s) given on commandline")
+        # use containers given on commandline containers, but keep the configuration order
+        given_containers = [c for c in config_containers if (c.name in arguments["<container>"])]
+        if len(given_containers) != len(arguments["<container>"]):
+            raise Exception("Unknown container name(s) given on commandline")
     
     if arguments["rebuild"]:
         rebuild_many(given_containers, ignore_cache=bool(arguments["--no-cache"]))
