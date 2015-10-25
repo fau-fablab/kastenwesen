@@ -1,0 +1,2 @@
+*.lock
+*.running_container_name

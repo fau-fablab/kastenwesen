@@ -1,0 +1,26 @@
+#!/bin/sh
+# run-service <servicename>
+# starts the service and stops it as soon as a kill signal is received
+set -e
+
+SERVICENAME=$1
+
+handle_sigterm() { 
+  echo "Caught SIGTERM signal! stopping service" 
+  service $SERVICENAME stop
+  ps aux | grep apache2
+}
+
+trap handle_sigterm TERM
+trap handle_sigterm KILL
+
+echo "starting service $1"
+service $1 start
+echo "service started"
+while true; do
+	service $1 status > /dev/null && sleep 1 || break
+done
+
+echo "service ended. sending stop signal and exiting."
+service $1 stop
+exit 0
