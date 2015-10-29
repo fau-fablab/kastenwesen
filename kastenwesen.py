@@ -13,9 +13,9 @@ Options:
   -v    enable verbose log output
 
 Actions explained:
-  status: show status 
-  rebuild: rebuild and restart 
-  
+  status: show status
+  rebuild: rebuild and restart
+
 If the containers argument is not given, the command refers to all containers in the config.
 """
 
@@ -34,9 +34,6 @@ import os
 from docopt import docopt
 from fcntl import flock, LOCK_EX, LOCK_NB
 
-# TODO hardcoded to the lower docker API version to run with ubuntu 14.04
-api_client = docker.Client(base_url='unix://var/run/docker.sock', version='1.12')
-
 
 def exec_verbose(cmd):
     """ run a command, and print infos about that to the terminal and log."""
@@ -47,9 +44,14 @@ def print_success(text):
     logging.info(text)
     cprint(text, attrs=['bold'], color='green')
 
-def print_error(text):
+def print_warning(text):
     logging.warning(text)
-    cprint(text, attrs=['bold'], color='red')    
+    cprint(text, attrs=['bold'], color='red')
+
+def print_fatal(text):
+    logging.warning(text)
+    cprint(text, attrs=['bold'], color='red')
+    sys.exit(1)
 
 def print_bold(text):
     logging.info(text)
@@ -58,7 +60,7 @@ def print_bold(text):
 
 class AbstractContainer(object):
     pass
-    
+
 class DockerContainer(AbstractContainer):
     def __init__(self, name, path, docker_options="", links=None, tests=None):
         """
@@ -71,18 +73,17 @@ class DockerContainer(AbstractContainer):
         self.docker_options = docker_options
         self.tests = tests if tests else {}
         self.links = links if links else []
-        pass
-    
+
     def rebuild(self, ignore_cache=False):
         """ rebuild the container image """
         # self.is_running() is called for the check against manually started containers from this image.
         # after building, the old images will be nameless and this check is no longer possible
         self.is_running()
-        
+
         print_bold("rebuilding image " + self.image_name)
         nocache = "--no-cache" if ignore_cache else ""
         exec_verbose("docker build {nocache} -t {imagename} {path}".format(nocache=nocache, imagename=self.image_name, path=self.path))
-    
+
     def running_container_id(self):
         """ return id of last known container instance, or False otherwise"""
         # the running id file is written by `docker run --cidfile <file>` in .start()
@@ -99,7 +100,7 @@ class DockerContainer(AbstractContainer):
             return f.read()
         except IOError:
             return False
-    
+
     def _set_running_container_name(self, new_id):
         previous_id = self.running_container_name()
         logging.debug("previous '{}' container name was: {}".format(self.name, previous_id))
@@ -107,7 +108,7 @@ class DockerContainer(AbstractContainer):
         f = open(self.name + '.running_container_name', 'w')
         f.write(new_id)
         f.close()
-    
+
     def stop(self):
         running_id = self.running_container_name()
         print_bold("Stopping {name} container {container}".format(name=self.name, container=running_id))
@@ -115,7 +116,7 @@ class DockerContainer(AbstractContainer):
             exec_verbose("docker stop {id}".format(id=running_id))
         else:
             logging.info("no known instance running")
-    
+
     def start(self):
         if self.is_running():
             raise Exception('container is already running')
@@ -142,30 +143,30 @@ class DockerContainer(AbstractContainer):
         sleep(2)
         print("Log:")
         self.logs()
-        
+
     def logs(self):
         print(api_client.logs(container=self.running_container_name(), stream=False))
-        
+
     def follow_logs(self):
         try:
             for l in (api_client.logs(container=self.running_container_name(), stream=True, timestamps=True, stdout=True, stderr=True, tail=999)):
                 print(l)
         except KeyboardInterrupt:
             sys.exit(0)
-    
+
     def check_for_unmanaged_containers(self):
         """ warn if any containers not managed by kastenwesen are running from the same image """
         running_containers = api_client.containers()
         running_container_ids = [ container['Id'] for container in running_containers ]
         logging.debug("Running containers: " + str(running_container_ids))
-        config_container_ids = [container.running_container_id() for container in config_containers]
-        
+        config_container_ids = [container.running_container_id() for container in CONFIG_CONTAINERS]
+
         # Check that no unmanaged containers are running from the same image
         for container in running_containers:
             if container['Image'] == self.image_name:
                 if container['Id'] not in config_container_ids:
                     raise Exception("The container '{}', not managed by kastenwesen.py, is currently running from the same image '{}'. I am assuming this is not what you want. Please stop it yourself and restart it via kastenwesen. See the output of 'docker ps' for more info.".format(container['Id'], self.image_name))
-        
+
 
     def is_running(self):
         self.check_for_unmanaged_containers()
@@ -176,8 +177,8 @@ class DockerContainer(AbstractContainer):
             return status['State']['Running']
         except docker.errors.NotFound:
             return False
-    
-    
+
+
     def test(self, sleep_before=True):
         # check that the container is running
         if sleep_before:
@@ -207,19 +208,19 @@ class DockerContainer(AbstractContainer):
         if not something_tested:
             logging.warn("no tests defined for container {}, a build error might go unnoticed!")
         return True
-            
+
     def print_status(self, sleep_before=True):
         running = self.is_running()
         if not running:
-            print_error("{name}: container is stopped".format(name=self.name))
+            print_warning("{name}: container is stopped".format(name=self.name))
         if self.test(sleep_before):
             if running:
                 print_success("{name} running, tests successful".format(name=self.name))
                 return True
             else:
-                print_error("{name}: container is stopped, but tests are successful. WTF?".format(name=self.name))
+                print_warning("{name}: container is stopped, but tests are successful. WTF?".format(name=self.name))
         elif running:
-                print_error("{name} running, but tests failed".format(name=self.name))
+            print_warning("{name} running, but tests failed".format(name=self.name))
         return False
 
 
@@ -247,6 +248,7 @@ def cleanup_containers(min_age_days=0, simulate=False):
 
     # get all non-running containers
     containers = api_client.containers(trunc=False, all=True)
+    config_container_ids = [c.running_container_id() for c in CONFIG_CONTAINERS]
     for container in containers:
         if not (container['Status'].startswith('Exited') or container['Status'] == ''):
             # still running
@@ -254,6 +256,10 @@ def cleanup_containers(min_age_days=0, simulate=False):
         if container['Created'] > time.time() - 60*60*24*min_age_days:
             # TODO this filters by creation time, not stop time.
             # too young
+            continue
+        if container['Id'] in config_container_ids:
+            print_warning("Not removing stopped container {} because it is the last known instance".format(container['Names']))
+            # the last known instance is never removed, even if it was stopped ages ago
             continue
         if simulate:
             print_bold("would remove old container {name} with id {id}".format(name=container['Names'], id=container['Id']))
@@ -264,54 +270,33 @@ def cleanup_containers(min_age_days=0, simulate=False):
 def cleanup_images(min_age_days=0, simulate=False):
     """ remove all untagged images and all stopped containers older that were created more than N days ago"""
 
-    # two helper functions for working with the shortened image ids/names that the container listing outputs
-    def image_matches_abbreviated_id(image, abbreviated_id):
-        # match for short id
-        if image['Id'].startswith(abbreviated_id):
-            return True
-        # match for name / tag
-        if not abbreviated_id.startswith("unknown") and abbreviated_id in image['RepoTags']:
-            return True
-        return False
-        
-    def image_exists(abbreviated_id):
-        for image in images:
-            if image_matches_abbreviated_id(image, abbreviated_id):
-                return True
-        return False
-    
     images = api_client.images()
     # get all running and non-running containers
-    containers = api_client.containers(trunc=False, all=True)
-    # the container list has abbreviated image ids like 2524da18912f
-    used_image_ids_abbreviated = [container['Image'] for container in containers]
-    for short_id in used_image_ids_abbreviated:
-        assert image_exists(short_id), "unknown abbreviated image id {} for container, cannot find image".format(short_id)
-    
-    def is_used_by_containers(image):
-        "is an image currently used by a container?"
-        for short_id in used_image_ids_abbreviated:
-            if image_matches_abbreviated_id(image, short_id):
-                return True
-        return False
-    
+    containers = api_client.containers(all=True)
+    # get the list of real ids -- image ids in .containers() are sometimes abbreviated
+    used_image_ids = [api_client.inspect_container(container['Id'])['Image'] for container in containers]
+    for image_id in used_image_ids:
+        assert image_id in [img['Id'] for img in images], "Image does not exist"
+
+    if simulate:
+        print_warning("Warning: --simulate is not perfect: If containers are removed, their images might be removed too, but that is not shown in simulation")
     for image in images:
         if image['RepoTags'] != [u'<none>:<none>']:
             # image is tagged, skip
             continue
-        if is_used_by_containers(image):
+        if image['Id'] in used_image_ids:
             # image is in use, skip
             continue
         if image['Created'] > time.time() - 60*60*24*min_age_days:
             # image is too young, skip
             continue
-        
+
         if simulate:
-             print_bold("would delete unused old image {}".format(image['Id']))
+            print_bold("would delete unused old image {}".format(image['Id']))
         else:
             print_bold("deleting unused old image {}".format(image['Id']))
             exec_verbose("docker rmi " + image['Id'])
-    
+
 def check_config(containers):
     # containers may only link to ones that are before them in the list
     # otherwise the whole startup process doesnt work or links to the wrong ones
@@ -319,45 +304,39 @@ def check_config(containers):
     for i in range(len(containers)):
         for link in containers[i].links:
             assert link in containers[0:i]
-    
-if __name__== "__main__":    
+
+def main():
     arguments = docopt(__doc__, version='')
-    
+
     loglevel = logging.INFO
     if "-v" in arguments:
         loglevel = logging.DEBUG
     logging.basicConfig(level=loglevel)
-    
-    
+
+
     # CONFIG
     # TODO outsorce to another file
     # A list of containers, ordered by dependency (e.g. database -> web application -> web application client, ...)
     # an image may only depend on images *before* it in the list
     # linking is also only allowed to containers *before* it in the list.
-    try:
-        execfile('kastenwesen_config.py')
-    except IOError:
-        print_error("No kastenwesen_config.py found in the current directory")
-        sys.exit(1)
-    
-    # Lock against concurrent use    
+
+    # Lock against concurrent use
     lockfile = open("kastenwesen.lock", "w")
     try:
         flock(lockfile.fileno(), LOCK_EX | LOCK_NB)
     except IOError:
-        print_error("Another instance is already running. Exiting")
-        sys.exit(1)
-    
-    check_config(config_containers)
-    
+        print_fatal("Another instance is already running. Exiting")
+
+    check_config(CONFIG_CONTAINERS)
+
     # parse common arguments
-    given_containers = config_containers
+    given_containers = CONFIG_CONTAINERS
     if arguments["<container>"]:
         # use containers given on commandline containers, but keep the configuration order
-        given_containers = [c for c in config_containers if (c.name in arguments["<container>"])]
+        given_containers = [c for c in CONFIG_CONTAINERS if (c.name in arguments["<container>"])]
         if len(given_containers) != len(arguments["<container>"]):
             raise Exception("Unknown container name(s) given on commandline")
-    
+
     if arguments["rebuild"]:
         rebuild_many(given_containers, ignore_cache=bool(arguments["--no-cache"]))
     elif arguments["restart"]:
@@ -366,13 +345,27 @@ if __name__== "__main__":
         if status_many(given_containers):
             sys.exit(0)
         else:
-            sys.exit(1)            
+            sys.exit(1)
     elif arguments["cleanup"]:
         if arguments["--min-age"] is None:
             min_age = 31
         else:
             min_age = int(arguments["--min-age"])
-        cleanup_containers(min_age_days=min_age, simulate=arguments["--simulate"]);    
-        cleanup_images(min_age_days=min_age, simulate=arguments["--simulate"]);
+        cleanup_containers(min_age_days=min_age, simulate=arguments["--simulate"])
+        cleanup_images(min_age_days=min_age, simulate=arguments["--simulate"])
     else:
         print(__doc__)
+
+CONFIG_CONTAINERS = []
+if __name__ == "__main__":
+    # TODO hardcoded to the lower docker API version to run with ubuntu 14.04
+    api_client = docker.Client(base_url='unix://var/run/docker.sock', version='1.12')
+    try:
+        config_containers = []
+        # set config_containers from conf file
+        execfile('kastenwesen_config.py')
+        CONFIG_CONTAINERS = config_containers
+    except IOError:
+        print_fatal("No kastenwesen_config.py found in the current directory")
+    main()
+
