@@ -38,13 +38,16 @@ from fcntl import flock, LOCK_EX, LOCK_NB
 api_client = docker.Client(base_url='unix://var/run/docker.sock', version='1.12')
 
 
-def exec_verbose(cmd):
+def exec_verbose(cmd, return_output=False):
     """ run a command, and print infos about that to the terminal and log."""
     print(os.getcwd() + "$ " + colored(cmd, attrs=['bold']))
-    output = subprocess.check_output(cmd, shell=True).strip()
-    # TODO currently, stdout is only printed after the process has finished
-    print(output)
-    return output
+    if return_output:
+        output = subprocess.check_output(cmd, shell=True).strip()
+        # TODO currently, stdout is only printed after the process has finished
+        print(output)
+        return output
+    else:
+        subprocess.check_call(cmd, shell=True)
 
 def print_success(text):
     logging.info(text)
@@ -122,7 +125,7 @@ class DockerContainer(AbstractContainer):
         print_bold("Starting container {}".format(new_name))
         logging.info("Starting {} container: {}".format(self.name, cmdline))
         #TODO volumes
-        new_id = exec_verbose(cmdline)
+        new_id = exec_verbose(cmdline, return_output=True)
         logging.info('started container %s', new_id)
         if len(new_id) != 64:
             raise Exception("cannot parse output when starting container: {}".format(new_id))
