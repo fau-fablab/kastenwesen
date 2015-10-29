@@ -38,16 +38,10 @@ from fcntl import flock, LOCK_EX, LOCK_NB
 api_client = docker.Client(base_url='unix://var/run/docker.sock', version='1.12')
 
 
-def exec_verbose(cmd, return_output=False):
+def exec_verbose(cmd):
     """ run a command, and print infos about that to the terminal and log."""
     print(os.getcwd() + "$ " + colored(cmd, attrs=['bold']))
-    if return_output:
-        output = subprocess.check_output(cmd, shell=True).strip()
-        # TODO currently, stdout is only printed after the process has finished
-        print(output)
-        return output
-    else:
-        subprocess.check_call(cmd, shell=True)
+    subprocess.check_call(cmd, shell=True)
 
 def print_success(text):
     logging.info(text)
@@ -89,8 +83,17 @@ class DockerContainer(AbstractContainer):
         nocache = "--no-cache" if ignore_cache else ""
         exec_verbose("docker build {nocache} -t {imagename} {path}".format(nocache=nocache, imagename=self.image_name, path=self.path))
     
-    def running_container_name(self):
+    def running_container_id(self):
         """ return id of last known container instance, or False otherwise"""
+        # the running id file is written by `docker run --cidfile <file>` in .start()
+        try:
+            f = open(self.name + '.running_container_id', 'r')
+            return f.read()
+        except IOError:
+            return False
+
+    def running_container_name(self):
+        """ return name of last known container instance, or False otherwise"""
         try:
             f = open(self.name + '.running_container_name', 'r')
             return f.read()
@@ -99,8 +102,8 @@ class DockerContainer(AbstractContainer):
     
     def _set_running_container_name(self, new_id):
         previous_id = self.running_container_name()
-        logging.debug("previous '{}' container id was: {}".format(self.name, previous_id))
-        logging.debug("new '{}' container id is now: {}".format(self.name, new_id))
+        logging.debug("previous '{}' container name was: {}".format(self.name, previous_id))
+        logging.debug("new '{}' container name is now: {}".format(self.name, new_id))
         f = open(self.name + '.running_container_name', 'w')
         f.write(new_id)
         f.close()
@@ -114,6 +117,14 @@ class DockerContainer(AbstractContainer):
             logging.info("no known instance running")
     
     def start(self):
+        if self.is_running():
+            raise Exception('container is already running')
+        container_id_file = "{}.running_container_id".format(self.name)
+        # move container id file out of the way if it exists - otherwise docker complains at startup
+        try:
+            os.rename(container_id_file, container_id_file + "_previous")
+        except OSError:
+            pass
         # names cannot be reused :( so we need to generate a new one each time
         new_name = self.name + datetime.datetime.now().strftime("-%Y-%m-%d_%H_%M_%S")
         docker_options = ""
@@ -121,14 +132,11 @@ class DockerContainer(AbstractContainer):
             assert linked_container.is_running(), "linked container {} is not running".format(self.links)
             docker_options += "--link={name}:{alias} ".format(name=linked_container.running_container_name(), alias=linked_container.name)
         docker_options += self.docker_options
-        cmdline = "docker run -d --memory=2g  --name={new_name} {docker_opts} {image_name} ".format(new_name=new_name, docker_opts=docker_options, image_name=self.image_name)
+        cmdline = "docker run -d --memory=2g  --cidfile={container_id_file} --name={new_name} {docker_opts} {image_name} ".format(container_id_file=container_id_file, new_name=new_name, docker_opts=docker_options, image_name=self.image_name)
         print_bold("Starting container {}".format(new_name))
         logging.info("Starting {} container: {}".format(self.name, cmdline))
         #TODO volumes
-        new_id = exec_verbose(cmdline, return_output=True)
-        logging.info('started container %s', new_id)
-        if len(new_id) != 64:
-            raise Exception("cannot parse output when starting container: {}".format(new_id))
+        exec_verbose(cmdline)
         self._set_running_container_name(new_name)
         logging.debug("waiting 2s for startup")
         sleep(2)
@@ -145,35 +153,29 @@ class DockerContainer(AbstractContainer):
         except KeyboardInterrupt:
             sys.exit(0)
     
-    def is_running(self):
+    def check_for_unmanaged_containers(self):
+        """ warn if any containers not managed by kastenwesen are running from the same image """
         running_containers = api_client.containers()
-        
-        def names_from_container(container):
-            for name_from_api in container['Names']:
-                # Names are prefixed with a /, strip it
-                assert name_from_api.startswith("/")
-                yield name_from_api[1:]
-        
-        def get_container_names(containers):
-            for container in containers:
-                for name in names_from_container(container):
-                    yield name
-
-        running_container_names = list(get_container_names(running_containers))
-        logging.debug("Running containers: " + str(running_container_names))
-        
-        config_container_names = [container.running_container_name() for container in config_containers]
+        running_container_ids = [ container['Id'] for container in running_containers ]
+        logging.debug("Running containers: " + str(running_container_ids))
+        config_container_ids = [container.running_container_id() for container in config_containers]
         
         # Check that no unmanaged containers are running from the same image
         for container in running_containers:
             if container['Image'] == self.image_name:
-                if set(config_container_names).isdisjoint(set(names_from_container(container))):
+                if container['Id'] not in config_container_ids:
                     raise Exception("The container '{}', not managed by kastenwesen.py, is currently running from the same image '{}'. I am assuming this is not what you want. Please stop it yourself and restart it via kastenwesen. See the output of 'docker ps' for more info.".format(container['Id'], self.image_name))
         
-        if self.running_container_name() in running_container_names:
-            return True
-        return False
 
+    def is_running(self):
+        self.check_for_unmanaged_containers()
+        if not self.running_container_id():
+            return False
+        try:
+            status = api_client.inspect_container(self.running_container_id())
+            return status['State']['Running']
+        except docker.errors.NotFound:
+            return False
     
     
     def test(self, sleep_before=True):
