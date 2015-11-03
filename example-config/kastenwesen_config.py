@@ -4,6 +4,16 @@
 config_containers = []
 
 #########################################
+# my_linux_base                         #
+# ===================================== #
+# Linux (Ubuntu 14.04) base image       #
+#########################################
+my_linux_base = DockerContainer("my-linux-base", "./my-linux-base/", tests={})
+config_containers.append(my_linux_base)
+
+# TODO dependency on my_linux_base, without linking
+
+#########################################
 # web                                   #
 # ===================================== #
 # A web server listening on port 80     #

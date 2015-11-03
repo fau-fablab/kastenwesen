@@ -9,6 +9,7 @@ Usage:
   kastenwesen restart [<container>...]
   kastenwesen stop [<container>...]
   kastenwesen cleanup [--simulate] [--min-age=<days>]
+  kastenwesen check-for-updates [<container>...]
 
 Options:
   -v    enable verbose log output
@@ -37,10 +38,17 @@ from docopt import docopt
 from fcntl import flock, LOCK_EX, LOCK_NB
 
 
-def exec_verbose(cmd):
-    """ run a command, and print infos about that to the terminal and log."""
+def exec_verbose(cmd, return_output=False):
+    """
+    run a command, and print infos about that to the terminal and log.
+
+    :param bool return_output: return output as string, don't print it to the terminal.
+    """
     print(os.getcwd() + "$ " + colored(cmd, attrs=['bold']))
-    subprocess.check_call(cmd, shell=True)
+    if return_output:
+        return subprocess.check_output(cmd, shell=True)
+    else:
+        subprocess.check_call(cmd, shell=True)
 
 
 def print_success(text):
@@ -212,7 +220,7 @@ class DockerContainer(AbstractContainer):
                 logging.warn("Test failed for TCP host {} port {}".format(host, port))
                 return False
         if not something_tested:
-            logging.warn("no tests defined for container {}, a build error might go unnoticed!")
+            logging.warn("no tests defined for container {}, a build error might go unnoticed!".format(self.name))
         return True
 
     def print_status(self, sleep_before=True):
@@ -228,6 +236,16 @@ class DockerContainer(AbstractContainer):
         elif running:
             print_warning("{name} running, but tests failed".format(name=self.name))
         return False
+    
+    def needs_package_updates(self):
+        kastenwesen_path = os.path.dirname(os.path.realpath(__file__))
+        cmd = "docker run --rm -v {kastenwesen_path}/helper/:/usr/local/kastenwesen_tmp/:ro {image} /usr/local/kastenwesen_tmp/check_for_updates.py".format(image=self.image_name, kastenwesen_path=kastenwesen_path)
+        updates = exec_verbose(cmd, return_output=True)
+        if updates:
+            print_warning("Container {} has outdated packages: {}".format(self.name, updates))
+            return True
+        else:
+            return False
 
 
 def rebuild_many(containers, ignore_cache=False):
@@ -256,6 +274,10 @@ def status_many(containers):
         okay = container_okay and okay
     return okay
 
+
+def need_package_updates(containers):
+    """ return all of the given containers that need package updates """
+    return [container for container in containers if container.needs_package_updates()]
 
 def cleanup_containers(min_age_days=0, simulate=False):
     # TODO how to make sure this doesn't delete data-containers for use with --volumes-from?
@@ -372,6 +394,14 @@ def main():
             min_age = int(arguments["--min-age"])
         cleanup_containers(min_age_days=min_age, simulate=arguments["--simulate"])
         cleanup_images(min_age_days=min_age, simulate=arguments["--simulate"])
+    elif arguments["check-for-updates"]:
+        containers_with_updates = need_package_updates(given_containers)
+        if containers_with_updates:
+            print_warning("Some containers have outdated packages: {}".format(" ".join([cont.name for cont in containers_with_updates])))
+            sys.exit(1)
+        else:
+            print_success("Packages are up to date.")
+            sys.exit(0)
     else:
         print(__doc__)
 
