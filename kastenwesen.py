@@ -89,6 +89,9 @@ class DockerContainer(AbstractContainer):
         self.tests = tests if tests else {}
         self.links = links if links else []
 
+    def __str__(self):
+        return self.name
+
     def rebuild(self, ignore_cache=False):
         """ rebuild the container image """
         # self.is_running() is called for the check against manually started containers from this image.
@@ -145,7 +148,7 @@ class DockerContainer(AbstractContainer):
         new_name = self.name + datetime.datetime.now().strftime("-%Y-%m-%d_%H_%M_%S")
         docker_options = ""
         for linked_container in self.links:
-            assert linked_container.is_running(), "linked container {} is not running".format(self.links)
+            assert linked_container.is_running(), "linked container(s) {} is/are not running".format(', '.join(['"%s"' % str(l) for l in self.links]))
             docker_options += "--link={name}:{alias} ".format(name=linked_container.running_container_name(), alias=linked_container.name)
         docker_options += self.docker_options
         cmdline = "docker run -d --memory=2g  --cidfile={container_id_file} --name={new_name} {docker_opts} {image_name} ".format(container_id_file=container_id_file, new_name=new_name, docker_opts=docker_options, image_name=self.image_name)
