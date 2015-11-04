@@ -3,3 +3,6 @@
 
 # compiled python
 *.pyc
+
+# Vagrant
+.vagrant
