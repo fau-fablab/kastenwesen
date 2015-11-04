@@ -1,0 +1,5 @@
+# container ids
+*.running_container_id*
+
+# compiled python
+*.pyc
