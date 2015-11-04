@@ -1,5 +1,7 @@
 # Kastenwesen
 
+[![Build Status](https://travis-ci.org/fau-fablab/kastenwesen.svg?branch=master)](https://travis-ci.org/fau-fablab/kastenwesen)
+
 A python script for managing multiple docker containers on a server.
 
 Imagine your server has multiple services that you want to separate and manage using docker.
@@ -20,7 +22,15 @@ A bootstrapping script for ubuntu 14.04 is available at install_dependencies_ubu
 # Setting up a VM with vagrant:
 
 You can also use vagrant + VirtualBox:
-
+```
 vagrant up
 vagrant ssh # connect into the machine
 cd share # this is the same as this git folder
+
+sudo -i
+cd /home/vagrant/share/example-config
+kastenwesen status
+kastenwesen rebuild
+curl localhost
+
+```

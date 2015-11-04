@@ -1,4 +1,4 @@
-#!/usr/bin/python2.7
+#!/usr/bin/env python2.7
 # -*- coding: utf-8 -*-
 """kastenwesen: a python tool for managing multiple docker containers
 
@@ -252,7 +252,9 @@ def stop_many(containers):
 def status_many(containers):
     okay = True
     for container in containers:
-        okay = container.print_status(sleep_before=False) and okay
+        container_okay = container.print_status(sleep_before=False)
+        okay = container_okay and okay
+    return okay
 
 
 def cleanup_containers(min_age_days=0, simulate=False):
