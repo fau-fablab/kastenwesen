@@ -42,18 +42,22 @@ def exec_verbose(cmd):
     print(os.getcwd() + "$ " + colored(cmd, attrs=['bold']))
     subprocess.check_call(cmd, shell=True)
 
+
 def print_success(text):
     logging.info(text)
     cprint(text, attrs=['bold'], color='green')
+
 
 def print_warning(text):
     logging.warning(text)
     cprint(text, attrs=['bold'], color='red')
 
+
 def print_fatal(text):
     logging.warning(text)
     cprint(text, attrs=['bold'], color='red')
     sys.exit(1)
+
 
 def print_bold(text):
     logging.info(text)
@@ -62,6 +66,7 @@ def print_bold(text):
 
 class AbstractContainer(object):
     pass
+
 
 class DockerContainer(AbstractContainer):
     def __init__(self, name, path, docker_options="", links=None, tests=None):
@@ -138,7 +143,7 @@ class DockerContainer(AbstractContainer):
         cmdline = "docker run -d --memory=2g  --cidfile={container_id_file} --name={new_name} {docker_opts} {image_name} ".format(container_id_file=container_id_file, new_name=new_name, docker_opts=docker_options, image_name=self.image_name)
         print_bold("Starting container {}".format(new_name))
         logging.info("Starting {} container: {}".format(self.name, cmdline))
-        #TODO volumes
+        # TODO volumes
         exec_verbose(cmdline)
         self._set_running_container_name(new_name)
         logging.debug("waiting 2s for startup")
@@ -159,7 +164,7 @@ class DockerContainer(AbstractContainer):
     def check_for_unmanaged_containers(self):
         """ warn if any containers not managed by kastenwesen are running from the same image """
         running_containers = api_client.containers()
-        running_container_ids = [ container['Id'] for container in running_containers ]
+        running_container_ids = [container['Id'] for container in running_containers]
         logging.debug("Running containers: " + str(running_container_ids))
         config_container_ids = [container.running_container_id() for container in CONFIG_CONTAINERS]
 
@@ -179,7 +184,6 @@ class DockerContainer(AbstractContainer):
             return status['State']['Running']
         except docker.errors.NotFound:
             return False
-
 
     def test(self, sleep_before=True):
         # check that the container is running
@@ -232,6 +236,7 @@ def rebuild_many(containers, ignore_cache=False):
     # TODO dummy test before restarting real system
     restart_many(containers)
 
+
 def restart_many(containers):
     # TODO also restart containers that are linked to the given ones - here and also at rebuild
     for container in containers:
@@ -248,6 +253,7 @@ def status_many(containers):
     okay = True
     for container in containers:
         okay = container.print_status(sleep_before=False) and okay
+
 
 def cleanup_containers(min_age_days=0, simulate=False):
     # TODO how to make sure this doesn't delete data-containers for use with --volumes-from?
@@ -273,6 +279,7 @@ def cleanup_containers(min_age_days=0, simulate=False):
         else:
             print_bold("removing old container {name} with id {id}".format(name=container['Names'], id=container['Id']))
             exec_verbose("docker rm {id}".format(id=container['Id']))
+
 
 def cleanup_images(min_age_days=0, simulate=False):
     """ remove all untagged images and all stopped containers older that were created more than N days ago"""
@@ -304,6 +311,7 @@ def cleanup_images(min_age_days=0, simulate=False):
             print_bold("deleting unused old image {}".format(image['Id']))
             exec_verbose("docker rmi " + image['Id'])
 
+
 def check_config(containers):
     # containers may only link to ones that are before them in the list
     # otherwise the whole startup process doesnt work or links to the wrong ones
@@ -312,6 +320,7 @@ def check_config(containers):
         for link in containers[i].links:
             assert link in containers[0:i]
 
+
 def main():
     arguments = docopt(__doc__, version='')
 
@@ -319,7 +328,6 @@ def main():
     if "-v" in arguments:
         loglevel = logging.DEBUG
     logging.basicConfig(level=loglevel)
-
 
     # CONFIG
     # TODO outsorce to another file
@@ -377,4 +385,3 @@ if __name__ == "__main__":
     except IOError:
         print_fatal("No kastenwesen_config.py found in the current directory")
     main()
-
