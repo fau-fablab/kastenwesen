@@ -7,6 +7,7 @@ Usage:
   kastenwesen status [<container>...]
   kastenwesen rebuild [--no-cache] [<container>...]
   kastenwesen restart [<container>...]
+  kastenwesen stop [<container>...]
   kastenwesen cleanup [--simulate] [--min-age=<days>]
 
 Options:
@@ -15,6 +16,7 @@ Options:
 Actions explained:
   status: show status
   rebuild: rebuild and restart
+  stop: stop a container or stop all containers
 
 If the containers argument is not given, the command refers to all containers in the config.
 """
@@ -237,6 +239,11 @@ def restart_many(containers):
         container.start()
         container.print_status()
 
+def stop_many(containers):
+    # TODO also stop containers that are linked to the given ones - here and also at rebuild
+    for container in containers:
+        container.stop()
+
 def status_many(containers):
     okay = True
     for container in containers:
@@ -346,6 +353,8 @@ def main():
             sys.exit(0)
         else:
             sys.exit(1)
+    elif arguments["stop"]:
+        stop_many(given_containers)
     elif arguments["cleanup"]:
         if arguments["--min-age"] is None:
             min_age = 31
