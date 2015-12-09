@@ -65,7 +65,7 @@ class DockerContainer(AbstractContainer):
     def __init__(self, name, path, docker_options="", links=None, tests=None):
         """
         :param options: commandline options to 'docker run'
-        :param tests: dictionary {'sleep_before': <sleep time>, 'http': <list of http(s) URLs that must return HTTP OK>, 'port': <list of ports that must be listening>}
+        :param tests: dictionary {'sleep_before': <sleep time>, 'http': <list of http(s) URLs that must return HTTP OK>, 'verify_ssl': <True/False> verify SSL cert, 'port': <list of ports that must be listening>}
         """
         self.name = name
         self.image_name = self.name + ':latest'
@@ -189,7 +189,7 @@ class DockerContainer(AbstractContainer):
         for url in self.tests.get('http_urls', []):
             something_tested = True
             try:
-                t = requests.get(url)
+                t = requests.get(url, verify=self.tests.get('verify_ssl', False))
                 t.raise_for_status()
             except IOError:
                 logging.warn("Test failed for HTTP {}".format(url))
