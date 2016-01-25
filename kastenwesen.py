@@ -402,8 +402,9 @@ def check_config(containers):
     # otherwise the whole startup process doesnt work or links to the wrong ones
 
     for i in range(len(containers)):
+        assert containers[i] not in containers[0:i], "container list contains a duplicate entry: {}".format(containers[i])
         for link in containers[i].links:
-            assert link in containers[0:i]
+            assert link in containers[0:i], "containers may only link to containers defined before them"
 
 
 def main():
