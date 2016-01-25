@@ -24,6 +24,11 @@ A bootstrapping script for ubuntu 14.04 is available at install_dependencies_ubu
 You can also use vagrant + VirtualBox:
 ```
 vagrant up
+./kastenwesen_vagrant_wrapper.py [arguments]
+```
+
+More directly, you can also SSH into the target VM and execute kastenwesen commands there
+```
 vagrant ssh # connect into the machine
 cd share # this is the same as this git folder
 
@@ -34,3 +39,10 @@ kastenwesen rebuild
 curl localhost
 
 ```
+
+# Continuous integration
+
+For travis-ci, a demo .travis.yml file is provided. You at least want to run `kastenwesen rebuild` in your CI build.
+
+Because of docker, the build needs root privilege. If you want to use Vagrant in a custom CI setup or for developer testing to ensure that your config is correct before going into production, a sample Vagrantfile and kastenwesen_vagrant_test_build.py build script are provided.
+
