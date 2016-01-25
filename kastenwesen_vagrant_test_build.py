@@ -21,11 +21,12 @@ Caching and build speed:
 
 import sys
 import subprocess
-
+import os
 
 def run(cmd):
-    print("Running: " + cmd)
-    subprocess.check_call(cmd.split(" "))
+    """ Run cmd, given as list of strings, one per argument """
+    print("Running: " + " ".join(cmd))
+    subprocess.check_call(cmd)
 
 args = sys.argv[1:]
 fast_build = False
@@ -35,19 +36,19 @@ if args:
         fast_build = True
     elif args == ["clean"]:
         clean_vm = True
-    if args != "fast":
+    else:
         print(__doc__)
         sys.exit(1)
 
 if clean_vm:
-    run("vagrant halt")
-    run("vagrant destroy -f")
-run("vagrant up")
+    run("vagrant halt".split(" "))
+    run("vagrant destroy -f".split(" "))
+run("vagrant up".split(" "))
 if fast_build:
-    build_arg = ""
+    build_arg = []
 else:
-    build_arg = " --no-cache"
-run("./kastenwesen_vagrant_wrapper.py rebuild" + build_arg)
+    build_arg = ["--no-cache"]
+run([os.path.dirname(sys.argv[0])+"/kastenwesen_vagrant_wrapper.py", "rebuild"] + build_arg)
 if not fast_build:
-    run("vagrant halt")
+    run("vagrant halt".split(" "))
 print("\nRebuild successful :-)\n")
