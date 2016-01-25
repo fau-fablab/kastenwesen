@@ -36,7 +36,7 @@ from termcolor import colored, cprint
 import os
 from docopt import docopt
 from fcntl import flock, LOCK_EX, LOCK_NB
-
+from copy import copy
 
 def exec_verbose(cmd, return_output=False):
     """
@@ -320,17 +320,73 @@ def rebuild_many(containers, ignore_cache=False):
     # TODO dummy test before restarting real system
     restart_many(containers)
 
+def ordered_by_dependency(containers, add_dependencies=False, add_reverse_dependencies=False):
+    """ Sort and possibly enlarge the list of containers so that it can be used for starting/stopping a group of containers without breaking any links.
+    
+    The list will be given in an order in which they can be started. Reverse it for stopping.
+    
+    :param bool add_dependencies: Add any containers that the given ones depend on. (useful for starting)
+    :param bool add_reverse_dependencies: Add any containers that depend on the given ones. (useful for stopping)
+    """
+    
+    containers = copy(containers)
+    if add_reverse_dependencies:
+        reverse_dependencies = set(containers)
+        something_changed = True
+        while something_changed:
+            # loop through all links, looking for something that can be directly or indirectly broken by stopping one of the given containers
+            something_changed = False    
+            for container in config_containers:
+                for link in container.links:
+                    if link in containers or link in reverse_dependencies:
+                        # stopping the given list will break this container
+                        if container in reverse_dependencies:
+                            # already added, skip this one
+                            continue
+                        else:
+                            something_changed = True
+                            print_bold("Adding reverse dependency {} to the given list of containers".format(link))
+                            reverse_dependencies.add(container)
+        containers += list(reverse_dependencies)
+    ordered_containers = []
+    something_changed = True
+    while something_changed:
+        something_changed = False
+        for container in copy(containers):
+            if container in ordered_containers:
+                # already added, skip this one
+                continue
+            links_satisfied = True
+            for link in container.links:
+                if link not in containers:
+                    # this container links to a container not given in the list
+                    if add_dependencies:
+                        print_bold("Adding dependency {} to the given list of containers".format(link))
+                        containers.append(link)
+                        something_changed = True
+                    else:
+                        # this dependency cannot be satisfied, ignore.
+                        continue
+                if link not in ordered_containers:
+                    links_satisfied = False
+            if links_satisfied:
+                ordered_containers.append(container)
+                something_changed = True
+    return ordered_containers
 
-def restart_many(containers):
-    # TODO also restart containers that are linked to the given ones - here and also at rebuild
-    for container in containers:
-        container.stop()
-        container.start()
+def restart_many(requested_containers):
+    # also restart the containers that will be broken by this:
+    requested_containers = ordered_by_dependency(requested_containers, add_reverse_dependencies=True)
+
+    stop_many(requested_containers)
+    for container in ordered_by_dependency(requested_containers, add_dependencies=True):
+        if container in requested_containers or not container.is_running():
+            container.start()
         container.print_status()
 
 def stop_many(containers):
     # TODO also stop containers that are linked to the given ones - here and also at rebuild
-    for container in containers:
+    for container in reversed(ordered_by_dependency(containers, add_reverse_dependencies=True)):
         container.stop()
 
 def status_many(containers):
