@@ -72,22 +72,100 @@ def print_bold(text):
     cprint(text, attrs=['bold'])
 
 
+class AbstractTest(object):
+    def run(self):
+        """ run the test. May print error messages if something is not right.
+        
+        :rtype: bool
+        :return: True if test successful, False otherwise.
+        """
+        return False
+
+
+class URLTest(AbstractTest):
+    def __init__(self, url, verify_ssl_cert=True):
+        self.url = url
+        self.verify_ssl_cert = verify_ssl_cert
+
+    def run(self):
+        try:
+            t = requests.get(self.url, verify=self.verify_ssl_cert)
+            t.raise_for_status()
+        except IOError:
+            logging.warn("Test failed for HTTP {}".format(self.url))
+            return False
+        return True
+
+
+class TCPPortTest(AbstractTest):
+    def __init__(self, port, host=None):
+        self.port = port
+        self.host = host or 'localhost'
+        
+    def run(self):
+        try:
+            socket.create_connection((self.host, self.port), timeout=2)
+        except IOError:
+            logging.warn("Test failed for TCP host {} port {}".format(self.host, self.port))
+            return False
+        return True
+
+
 class AbstractContainer(object):
-    pass
+    def __init__(self, name, sleep_before_test=0.5):
+        self.name = name
+        self.tests = []
+        self.sleep_before_test = sleep_before_test
+
+    def add_test(self, test):
+        assert isinstance(test, AbstractTest), "given test must be a AbstractTest subclass"
+        self.tests.append(test)
 
 
 class DockerContainer(AbstractContainer):
-    def __init__(self, name, path, docker_options="", links=None, tests=None):
+    def __init__(self, name, path, docker_options="", sleep_before_test=0.5):
+        
         """
         :param options: commandline options to 'docker run'
         :param tests: dictionary {'sleep_before': <sleep time>, 'http': <list of http(s) URLs that must return HTTP OK>, 'verify_ssl': <True/False> verify SSL cert, 'port': <list of ports that must be listening>}
         """
-        self.name = name
+        AbstractContainer.__init__(self, name, sleep_before_test)
         self.image_name = self.name + ':latest'
         self.path = path
         self.docker_options = docker_options
-        self.tests = tests if tests else {}
-        self.links = links if links else []
+        self.links = []
+        
+    def test(self, sleep_before=True):
+        if not self.tests:
+            logging.warn("no tests defined for container {}, a build error might go unnoticed!".format(self.name))
+        success = True
+        for test in self.tests:
+            success = test.run() and success
+
+        # check that the container is running
+        if sleep_before:
+            time.sleep(self.sleep_before_test)
+        return success
+
+    def add_link(self, link_to_container):
+        assert isinstance(link_to_container, DockerContainer)
+        self.links.append(link_to_container)
+        
+    def add_volume(self, host_path, container_path, readonly=False):
+        self.docker_options += " -v {0}:{1}".format(host_path, container_path)
+        if readonly:
+            self.docker_options += ":ro"
+        self.docker_options += "  "
+
+    def add_port(self, host_port, container_port, test=True):
+        """
+        forward incoming connections on host_post to container_port inside the container.
+        
+        :param boolean test: test for an open TCP server on the port, raise error if nothing is listening there
+        """
+        self.docker_options += " -p {0}:{1}".format(host_port, container_port)
+        self.add_test(TCPPortTest(port=host_port))
+
 
     def __str__(self):
         return self.name
@@ -196,35 +274,7 @@ class DockerContainer(AbstractContainer):
         except docker.errors.NotFound:
             return False
 
-    def test(self, sleep_before=True):
-        # check that the container is running
-        if sleep_before:
-            time.sleep(self.tests.get('sleep_before', 1))
-        if not self.is_running():
-            return False
-        something_tested = False
-        for url in self.tests.get('http_urls', []):
-            something_tested = True
-            try:
-                t = requests.get(url, verify=self.tests.get('verify_ssl', False))
-                t.raise_for_status()
-            except IOError:
-                logging.warn("Test failed for HTTP {}".format(url))
-                return False
-        for obj in self.tests.get('ports', []):
-            # obj may be a (host, port) tuple or just a port.
-            if isinstance(obj, int):
-                obj = ('localhost', obj)
-            (host, port) = obj
-            something_tested = True
-            try:
-                socket.create_connection((host, port), timeout=2)
-            except IOError:
-                logging.warn("Test failed for TCP host {} port {}".format(host, port))
-                return False
-        if not something_tested:
-            logging.warn("no tests defined for container {}, a build error might go unnoticed!".format(self.name))
-        return True
+
 
     def print_status(self, sleep_before=True):
         running = self.is_running()
@@ -339,6 +389,14 @@ def cleanup_images(min_age_days=0, simulate=False):
             exec_verbose("docker rmi " + image['Id'])
 
 
+def print_status_and_exit(given_containers):
+    if status_many(given_containers):
+        print_success("Success.")
+        sys.exit(0)
+    else:
+        print_fatal("Some containers are not working!")
+        sys.exit(1)
+
 def check_config(containers):
     # containers may only link to ones that are before them in the list
     # otherwise the whole startup process doesnt work or links to the wrong ones
@@ -381,13 +439,12 @@ def main():
 
     if arguments["rebuild"]:
         rebuild_many(given_containers, ignore_cache=bool(arguments["--no-cache"]))
+        print_status_and_exit(given_containers)
     elif arguments["restart"]:
         restart_many(given_containers)
+        print_status_and_exit(given_containers)
     elif arguments["status"]:
-        if status_many(given_containers):
-            sys.exit(0)
-        else:
-            sys.exit(1)
+        print_status_and_exit(given_containers)
     elif arguments["stop"]:
         stop_many(given_containers)
     elif arguments["cleanup"]:

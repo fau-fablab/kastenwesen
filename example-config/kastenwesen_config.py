@@ -8,7 +8,7 @@ config_containers = []
 # ===================================== #
 # Linux (Ubuntu 14.04) base image       #
 #########################################
-my_linux_base = DockerContainer("my-linux-base", "./my-linux-base/", tests={})
+my_linux_base = DockerContainer(name="my-linux-base", path="./my-linux-base/")
 config_containers.append(my_linux_base)
 
 # TODO dependency on my_linux_base, without linking
@@ -18,10 +18,11 @@ config_containers.append(my_linux_base)
 # ===================================== #
 # A web server listening on port 80     #
 #########################################
-web = DockerContainer(
-    "webserver", "./webserver/",
-    docker_options="-p 80:80 -v " + os.getcwd() + "/webserver/webroot:/var/www:ro",
-    tests={'sleep_before': 2, 'http_urls': ['http://localhost'], 'ports': [80]})
+web = DockerContainer(name="webserver", path="./webserver/", sleep_before_test=2)
+web.add_port(host_port=80, container_port=80)
+web.add_volume(host_path=os.getcwd() + "/webserver/webroot",
+               container_path="/var/www", readonly=True)
+web.add_test(URLTest("http://localhost"))
 config_containers.append(web)
 
 #########################################
@@ -29,10 +30,8 @@ config_containers.append(web)
 # ===================================== #
 # A testserver listening on port 1231   #
 #########################################
-test1 = DockerContainer(
-    "test1", "./test1/",
-    docker_options="-p 1231:1234",
-    tests={'sleep_before': 0, 'ports': [1231]})
+test1 = DockerContainer(name="test1", path="./test1/")
+test1.add_port(host_port=1231, container_port=1234)
 config_containers.append(test1)
 
 #########################################
@@ -40,11 +39,9 @@ config_containers.append(test1)
 # ===================================== #
 # A testserver listening on port 1232   #
 #########################################
-test2 = DockerContainer(
-    "test2", "./test2/",
-    links=[test1],
-    docker_options="-p 1232:1234",
-    tests={'sleep_before': 0, 'ports': [1232]})
+test2 = DockerContainer(name="test2", path="./test2/")
+test2.add_link(test1),
+test2.add_port(host_port=1232, container_port=1234)
 config_containers.append(test2)
 
 #########################################
@@ -54,9 +51,9 @@ config_containers.append(test2)
 # port of test2 to 1337                 #
 # (like a reverse proxy)                #
 #########################################
-portforwarder_to_test2 = DockerContainer(
-    "portforwarder-to-test2", "./portforwarder-to-test2/",
-    links=[test2],
-    docker_options="-p 1337:1234",
-    tests={'sleep_before': 0, 'ports': [1337]})
+portforwarder_to_test2 = DockerContainer(name="portforwarder-to-test2",
+                                         path="./portforwarder-to-test2/")
+portforwarder_to_test2.add_port(host_port=1337, container_port=1234)
+portforwarder_to_test2.add_link(test2)
+
 config_containers.append(portforwarder_to_test2)
