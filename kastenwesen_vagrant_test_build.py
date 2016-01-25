@@ -48,7 +48,7 @@ if fast_build:
     build_arg = []
 else:
     build_arg = ["--no-cache"]
-run([os.path.dirname(sys.argv[0])+"/kastenwesen_vagrant_wrapper.py", "rebuild"] + build_arg)
+run([os.path.dirname(os.path.realpath(__file__)) + "/kastenwesen_vagrant_wrapper.py", "rebuild"] + build_arg)
 if not fast_build:
     run("vagrant halt".split(" "))
 print("\nRebuild successful :-)\n")
