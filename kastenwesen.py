@@ -98,15 +98,27 @@ class URLTest(AbstractTest):
 
 
 class TCPPortTest(AbstractTest):
-    def __init__(self, port, host=None):
+    def __init__(self, port, host=None, expect_data=True):
         self.port = port
         self.host = host or 'localhost'
+        self.expect_data = expect_data
         
     def run(self):
         try:
-            socket.create_connection((self.host, self.port), timeout=2)
+            sock = socket.create_connection((self.host, self.port), timeout=2)
         except IOError:
-            logging.warn("Test failed for TCP host {} port {}".format(self.host, self.port))
+            logging.warn("Connection failed for TCP host {} port {}".format(self.host, self.port))
+            return False
+        try:
+            sock.settimeout(1)
+            # send something
+            sock.send("hello\n")
+            # try to get a reply
+            sock.recv(1)
+        except IOError:
+            logging.warn("No response from TCP host {} port {} - server dead "
+                         "or this protocol doesn't answer to a simple 'hello' "
+                         "packet.".format(self.host, self.port))
             return False
         return True
 
@@ -164,7 +176,8 @@ class DockerContainer(AbstractContainer):
         :param boolean test: test for an open TCP server on the port, raise error if nothing is listening there
         """
         self.docker_options += " -p {0}:{1}".format(host_port, container_port)
-        self.add_test(TCPPortTest(port=host_port))
+        if test:
+            self.add_test(TCPPortTest(port=host_port))
 
 
     def __str__(self):

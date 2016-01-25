@@ -31,7 +31,8 @@ config_containers.append(web)
 # A testserver listening on port 1231   #
 #########################################
 test1 = DockerContainer(name="test1", path="./test1/")
-test1.add_port(host_port=1231, container_port=1234)
+# this server doesn't answer with any data, so disable the test for the port
+test1.add_port(host_port=1231, container_port=1234, test=False)
 config_containers.append(test1)
 
 #########################################
