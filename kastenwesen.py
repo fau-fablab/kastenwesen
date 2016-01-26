@@ -16,8 +16,9 @@ Options:
 
 Actions explained:
   status: show status
-  rebuild: rebuild and restart
-  stop: stop a container or stop all containers
+  rebuild: rebuild and restart. Takes care of dependencies.
+  stop: stop a container or stop all containers. Also stops dependent containers (e.g. web application is stopped if you stop its database container)
+  cleanup: remove old containers and dangling images
 
 If the containers argument is not given, the command refers to all containers in the config.
 """
@@ -295,7 +296,7 @@ class DockerContainer(AbstractContainer):
             print_warning("{name}: container is stopped".format(name=self.name))
         if self.test(sleep_before):
             if running:
-                print_success("{name} running, tests successful".format(name=self.name))
+                print_success("{name} running, tests OK".format(name=self.name))
                 return True
             else:
                 print_warning("{name}: container is stopped, but tests are successful. WTF?".format(name=self.name))
@@ -345,7 +346,7 @@ def ordered_by_dependency(containers, add_dependencies=False, add_reverse_depend
                             continue
                         else:
                             something_changed = True
-                            print_bold("Adding reverse dependency {} to the given list of containers".format(link))
+                            logging.debug("Adding reverse dependency {} to the given list of containers".format(link))
                             reverse_dependencies.add(container)
         containers += list(reverse_dependencies)
     ordered_containers = []
@@ -361,7 +362,7 @@ def ordered_by_dependency(containers, add_dependencies=False, add_reverse_depend
                 if link not in containers:
                     # this container links to a container not given in the list
                     if add_dependencies:
-                        print_bold("Adding dependency {} to the given list of containers".format(link))
+                        logging.debug("Adding dependency {} to the given list of containers".format(link))
                         containers.append(link)
                         something_changed = True
                     else:
@@ -374,20 +375,39 @@ def ordered_by_dependency(containers, add_dependencies=False, add_reverse_depend
                 something_changed = True
     return ordered_containers
 
+
 def restart_many(requested_containers):
     # also restart the containers that will be broken by this:
-    requested_containers = ordered_by_dependency(requested_containers, add_reverse_dependencies=True)
+    stop_containers = stop_many(requested_containers)
 
-    stop_many(requested_containers)
-    for container in ordered_by_dependency(requested_containers, add_dependencies=True):
-        if container in requested_containers or not container.is_running():
+    start_containers = ordered_by_dependency(stop_containers, add_dependencies=True)
+    added_dep_containers = [container for container in start_containers if container not in stop_containers]
+    if added_dep_containers:
+            print_bold("Also starting necessary dependencies, if not yet running: {}".format(", ".join([str(i) for i in added_dep_containers])))
+
+    for container in start_containers:
+        if container in stop_containers or not container.is_running():
             container.start()
         container.print_status()
 
-def stop_many(containers):
-    # TODO also stop containers that are linked to the given ones - here and also at rebuild
-    for container in reversed(ordered_by_dependency(containers, add_reverse_dependencies=True)):
+def stop_many(requested_containers):
+    """
+    Stop the given containers and all that that depend on them (i.e. are linked to them)
+
+    :param containers: List of containers
+    :type containers: list[AbstractContainer]
+    :rtype: list[AbstractContainer]
+    :return: list of all containers that were stopped
+             (includes the ones stopped because of dependencies)
+    """
+
+    stop_containers = list(reversed(ordered_by_dependency(requested_containers, add_reverse_dependencies=True)))
+    added_dep_containers = [container for container in stop_containers if container not in requested_containers]
+    if added_dep_containers:
+            print_bold("Also stopping containers affected by this action: {}".format(", ".join([str(i) for i in added_dep_containers])))
+    for container in stop_containers:
         container.stop()
+    return stop_containers
 
 def status_many(containers):
     okay = True
@@ -408,6 +428,7 @@ def cleanup_containers(min_age_days=0, simulate=False):
     # get all non-running containers
     containers = api_client.containers(trunc=False, all=True)
     config_container_ids = [c.running_container_id() for c in CONFIG_CONTAINERS]
+    removed_containers = []
     for container in containers:
         if not (container['Status'].startswith('Exited') or container['Status'] == ''):
             # still running
@@ -420,32 +441,42 @@ def cleanup_containers(min_age_days=0, simulate=False):
             print_warning("Not removing stopped container {} because it is the last known instance".format(container['Names']))
             # the last known instance is never removed, even if it was stopped ages ago
             continue
+        removed_containers.append(container['Id'])
         if simulate:
             print_bold("would remove old container {name} with id {id}".format(name=container['Names'], id=container['Id']))
         else:
             print_bold("removing old container {name} with id {id}".format(name=container['Names'], id=container['Id']))
             exec_verbose("docker rm {id}".format(id=container['Id']))
+    return removed_containers
 
 
-def cleanup_images(min_age_days=0, simulate=False):
+def cleanup_images(min_age_days=0, simulate=False, simulated_deleted_containers=None):
     """ remove all untagged images and all stopped containers older that were created more than N days ago"""
 
-    images = api_client.images()
-    # get all running and non-running containers
-    containers = api_client.containers(all=True)
-    # get the list of real ids -- image ids in .containers() are sometimes abbreviated
-    used_image_ids = [api_client.inspect_container(container['Id'])['Image'] for container in containers]
-    for image_id in used_image_ids:
-        assert image_id in [img['Id'] for img in images], "Image does not exist"
+    if not simulated_deleted_containers:
+        simulated_deleted_containers = []
 
-    if simulate:
-        print_warning("Warning: --simulate is not perfect: If containers are removed, their images might be removed too, but that is not shown in simulation")
-    for image in images:
+    images = api_client.images(all=True)
+    # get all running and non-running containers
+    containers = api_client.containers(all=True, trunc=False)
+    # get the list of real ids -- image ids in .containers() are sometimes abbreviated
+    used_image_ids = []
+    for container in containers:
+        used_image_id = api_client.inspect_container(container['Id'])['Image']
+        assert used_image_id in [img['Id'] for img in images], "Image {img} does not exist, but is used by container {container}".format(img=used_image_id, container=container)
+        if container['Id'] in simulated_deleted_containers:
+            continue
+        used_image_ids.append(used_image_id)
+
+    dangling_images = api_client.images(all=True, filters={"dangling": True})
+    for image in dangling_images:
         if image['RepoTags'] != [u'<none>:<none>']:
             # image is tagged, skip
+            raise Exception("this should not happen, as we filtered for dangling images only")
             continue
         if image['Id'] in used_image_ids:
             # image is in use, skip
+            raise Exception("this should not happen, as we filtered for dangling images only")
             continue
         if image['Created'] > time.time() - 60*60*24*min_age_days:
             # image is too young, skip
@@ -522,8 +553,15 @@ def main():
             min_age = 31
         else:
             min_age = int(arguments["--min-age"])
-        cleanup_containers(min_age_days=min_age, simulate=arguments["--simulate"])
-        cleanup_images(min_age_days=min_age, simulate=arguments["--simulate"])
+        deleted_containers = cleanup_containers(min_age_days=min_age, simulate=arguments["--simulate"])
+        simulated_deleted_containers = []
+        # if simulating, pass on the information about deleted containers for
+        # correct simulation results
+        if arguments["--simulate"]:
+            simulated_deleted_containers = deleted_containers
+        cleanup_images(min_age_days=min_age,
+                       simulate=arguments["--simulate"],
+                       simulated_deleted_containers=simulated_deleted_containers)
     elif arguments["check-for-updates"]:
         containers_with_updates = need_package_updates(given_containers)
         if containers_with_updates:
