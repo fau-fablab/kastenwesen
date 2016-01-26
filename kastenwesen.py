@@ -115,7 +115,9 @@ class TCPPortTest(AbstractTest):
             # send something
             sock.send("hello\n")
             # try to get a reply
-            sock.recv(1)
+            data = sock.recv(1)
+            if not data:
+                raise IOError("no response?")
         except IOError:
             logging.warn("No response from TCP host {} port {} - server dead "
                          "or this protocol doesn't answer to a simple 'hello' "
