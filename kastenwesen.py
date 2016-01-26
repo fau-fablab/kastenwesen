@@ -60,6 +60,7 @@ from docopt import docopt
 from fcntl import flock, LOCK_EX, LOCK_NB
 from copy import copy
 
+
 def exec_verbose(cmd, return_output=False):
     """
     run a command, and print infos about that to the terminal and log.
@@ -97,7 +98,7 @@ def print_bold(text):
 class AbstractTest(object):
     def run(self):
         """ run the test. May print error messages if something is not right.
-        
+
         :rtype: bool
         :return: True if test successful, False otherwise.
         """
@@ -124,7 +125,7 @@ class TCPPortTest(AbstractTest):
         self.port = port
         self.host = host or 'localhost'
         self.expect_data = expect_data
-        
+
     def run(self):
         try:
             sock = socket.create_connection((self.host, self.port), timeout=2)
@@ -160,7 +161,7 @@ class AbstractContainer(object):
 
 class DockerContainer(AbstractContainer):
     def __init__(self, name, path, docker_options="", sleep_before_test=0.5):
-        
+
         """
         :param options: commandline options to 'docker run'
         :param tests: dictionary {'sleep_before': <sleep time>, 'http': <list of http(s) URLs that must return HTTP OK>, 'verify_ssl': <True/False> verify SSL cert, 'port': <list of ports that must be listening>}
@@ -170,7 +171,7 @@ class DockerContainer(AbstractContainer):
         self.path = path
         self.docker_options = docker_options
         self.links = []
-        
+
     def test(self, sleep_before=True):
         if not self.tests:
             logging.warn("no tests defined for container {}, a build error might go unnoticed!".format(self.name))
@@ -186,7 +187,7 @@ class DockerContainer(AbstractContainer):
     def add_link(self, link_to_container):
         assert isinstance(link_to_container, DockerContainer)
         self.links.append(link_to_container)
-        
+
     def add_volume(self, host_path, container_path, readonly=False):
         self.docker_options += " -v {0}:{1}".format(host_path, container_path)
         if readonly:
@@ -196,13 +197,12 @@ class DockerContainer(AbstractContainer):
     def add_port(self, host_port, container_port, test=True):
         """
         forward incoming connections on host_post to container_port inside the container.
-        
+
         :param boolean test: test for an open TCP server on the port, raise error if nothing is listening there
         """
         self.docker_options += " -p {0}:{1}".format(host_port, container_port)
         if test:
             self.add_test(TCPPortTest(port=host_port))
-
 
     def __str__(self):
         return self.name
@@ -300,7 +300,6 @@ class DockerContainer(AbstractContainer):
                 if container['Id'] not in config_container_ids:
                     raise Exception("The container '{}', not managed by kastenwesen.py, is currently running from the same image '{}'. I am assuming this is not what you want. Please stop it yourself and restart it via kastenwesen. See the output of 'docker ps' for more info.".format(container['Id'], self.image_name))
 
-
     def is_running(self):
         self.check_for_unmanaged_containers()
         if not self.running_container_id():
@@ -310,8 +309,6 @@ class DockerContainer(AbstractContainer):
             return status['State']['Running']
         except docker.errors.NotFound:
             return False
-
-
 
     def print_status(self, sleep_before=True):
         running = self.is_running()
@@ -326,7 +323,7 @@ class DockerContainer(AbstractContainer):
         elif running:
             print_warning("{name} running, but tests failed".format(name=self.name))
         return False
-    
+
     def needs_package_updates(self):
         kastenwesen_path = os.path.dirname(os.path.realpath(__file__))
         cmd = "docker run --rm -v {kastenwesen_path}/helper/:/usr/local/kastenwesen_tmp/:ro {image} /usr/local/kastenwesen_tmp/check_for_updates.py".format(image=self.image_name, kastenwesen_path=kastenwesen_path)
@@ -344,22 +341,23 @@ def rebuild_many(containers, ignore_cache=False):
     # TODO dummy test before restarting real system
     restart_many(containers)
 
+
 def ordered_by_dependency(containers, add_dependencies=False, add_reverse_dependencies=False):
     """ Sort and possibly enlarge the list of containers so that it can be used for starting/stopping a group of containers without breaking any links.
-    
+
     The list will be given in an order in which they can be started. Reverse it for stopping.
-    
+
     :param bool add_dependencies: Add any containers that the given ones depend on. (useful for starting)
     :param bool add_reverse_dependencies: Add any containers that depend on the given ones. (useful for stopping)
     """
-    
+
     containers = copy(containers)
     if add_reverse_dependencies:
         reverse_dependencies = set(containers)
         something_changed = True
         while something_changed:
             # loop through all links, looking for something that can be directly or indirectly broken by stopping one of the given containers
-            something_changed = False    
+            something_changed = False
             for container in config_containers:
                 for link in container.links:
                     if link in containers or link in reverse_dependencies:
@@ -413,6 +411,7 @@ def restart_many(requested_containers):
             container.start()
         container.print_status()
 
+
 def stop_many(requested_containers):
     """
     Stop the given containers and all that that depend on them (i.e. are linked to them)
@@ -432,6 +431,7 @@ def stop_many(requested_containers):
         container.stop()
     return stop_containers
 
+
 def status_many(containers):
     okay = True
     for container in containers:
@@ -443,6 +443,7 @@ def status_many(containers):
 def need_package_updates(containers):
     """ return all of the given containers that need package updates """
     return [container for container in containers if container.needs_package_updates()]
+
 
 def cleanup_containers(min_age_days=0, simulate=False):
     # TODO how to make sure this doesn't delete data-containers for use with --volumes-from?
@@ -519,6 +520,7 @@ def print_status_and_exit(given_containers):
     else:
         print_fatal("Some containers are not working!")
         sys.exit(1)
+
 
 def check_config(containers):
     # containers may only link to ones that are before them in the list
