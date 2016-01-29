@@ -29,6 +29,7 @@ Usage:
   kastenwesen rebuild [--no-cache] [<container>...]
   kastenwesen restart [<container>...]
   kastenwesen stop [<container>...]
+  kastenwesen shell <container>
   kastenwesen cleanup [--simulate] [--min-age=<days>]
   kastenwesen check-for-updates [<container>...]
 
@@ -185,6 +186,7 @@ class DockerContainer(AbstractContainer):
         return success
 
     def add_link(self, link_to_container):
+        """Add a link to the given container. The link alias will be the container name given in the config, so you can directly reach the container under its name."""
         assert isinstance(link_to_container, DockerContainer)
         self.links.append(link_to_container)
 
@@ -333,6 +335,11 @@ class DockerContainer(AbstractContainer):
             return True
         else:
             return False
+
+    def interactive_shell(self):
+        print("Starting a shell inside the running instance.")
+        cmd = "docker exec -it {container} bash".format(container=self.running_container_name())
+        exec_verbose(cmd)
 
 
 def rebuild_many(containers, ignore_cache=False):
@@ -573,6 +580,8 @@ def main():
         print_status_and_exit(given_containers)
     elif arguments["stop"]:
         stop_many(given_containers)
+    elif arguments["shell"]:
+        given_containers[0].interactive_shell()
     elif arguments["cleanup"]:
         if arguments["--min-age"] is None:
             min_age = 31
