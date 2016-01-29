@@ -611,6 +611,9 @@ def main():
 
 CONFIG_CONTAINERS = []
 if __name__ == "__main__":
+    # get config from current dir, or from /etc/kastenwesen
+    if not os.path.isfile("./kastenwesen_config.py"):
+        os.chdir("/etc/kastenwesen/")
     # TODO hardcoded to the lower docker API version to run with ubuntu 14.04
     api_client = docker.Client(base_url='unix://var/run/docker.sock', version='1.12')
     try:
@@ -619,5 +622,5 @@ if __name__ == "__main__":
         execfile('kastenwesen_config.py')
         CONFIG_CONTAINERS = config_containers
     except IOError:
-        print_fatal("No kastenwesen_config.py found in the current directory")
+        print_fatal("No kastenwesen_config.py found in the current directory or in /etc/kastenwesen")
     main()
