@@ -61,6 +61,12 @@ from docopt import docopt
 from fcntl import flock, LOCK_EX, LOCK_NB
 from copy import copy
 
+# switch off strange python requests warnings and log output
+requests.packages.urllib3.disable_warnings()
+requests_log = logging.getLogger("requests")
+requests_log.setLevel(logging.WARNING)
+
+
 
 def exec_verbose(cmd, return_output=False):
     """
@@ -115,8 +121,8 @@ class URLTest(AbstractTest):
         try:
             t = requests.get(self.url, verify=self.verify_ssl_cert)
             t.raise_for_status()
-        except IOError:
-            logging.warn("Test failed for HTTP {}".format(self.url))
+        except IOError, e:
+            logging.error("Test failed for HTTP {}: {}".format(self.url, e))
             return False
         return True
 
@@ -131,7 +137,7 @@ class TCPPortTest(AbstractTest):
         try:
             sock = socket.create_connection((self.host, self.port), timeout=2)
         except IOError:
-            logging.warn("Connection failed for TCP host {} port {}".format(self.host, self.port))
+            logging.error("Connection failed for TCP host {} port {}".format(self.host, self.port))
             return False
         try:
             sock.settimeout(1)
@@ -142,7 +148,7 @@ class TCPPortTest(AbstractTest):
             if not data:
                 raise IOError("no response?")
         except IOError:
-            logging.warn("No response from TCP host {} port {} - server dead "
+            logging.error("No response from TCP host {} port {} - server dead "
                          "or this protocol doesn't answer to a simple 'hello' "
                          "packet.".format(self.host, self.port))
             return False
@@ -548,13 +554,15 @@ def main():
     logging.basicConfig(level=loglevel)
 
     # CONFIG
-    # TODO outsorce to another file
     # A list of containers, ordered by dependency (e.g. database -> web application -> web application client, ...)
     # an image may only depend on images *before* it in the list
     # linking is also only allowed to containers *before* it in the list.
 
     # Lock against concurrent use
-    lockfile = open("kastenwesen.lock", "w")
+    try:
+        lockfile = open("/var/lock/kastenwesen.lock", "w")
+    except IOError:
+        print_fatal("Cannot acquire lock. Are you root?")
     try:
         flock(lockfile.fileno(), LOCK_EX | LOCK_NB)
     except IOError:
