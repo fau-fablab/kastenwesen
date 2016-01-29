@@ -25,13 +25,11 @@ kastenwesen: a python tool for managing multiple docker containers
 
 Usage:
   kastenwesen help
-  kastenwesen status [<container>...]
+  kastenwesen (status|restart|stop) [<container>...]
   kastenwesen rebuild [--no-cache] [<container>...]
-  kastenwesen restart [<container>...]
-  kastenwesen stop [<container>...]
-  kastenwesen shell <container>
-  kastenwesen cleanup [--simulate] [--min-age=<days>]
   kastenwesen check-for-updates [<container>...]
+  kastenwesen (shell|log) <container>
+  kastenwesen cleanup [--simulate] [--min-age=<days>]
 
 Options:
   -v    enable verbose log output
@@ -40,7 +38,9 @@ Actions explained:
   status: show status
   rebuild: rebuild and restart. Takes care of dependencies.
   stop: stop a container or stop all containers. Also stops dependent containers (e.g. web application is stopped if you stop its database container)
-  cleanup: remove old containers and dangling images
+  restart: stop and start again
+  shell: exec a shell inside the running container
+  cleanup: carefully remove old containers and images that are no longer used
 
 If the containers argument is not given, the command refers to all containers in the config.
 """
@@ -582,6 +582,8 @@ def main():
         stop_many(given_containers)
     elif arguments["shell"]:
         given_containers[0].interactive_shell()
+    elif arguments["log"]:
+        given_containers[0].logs()
     elif arguments["cleanup"]:
         if arguments["--min-age"] is None:
             min_age = 31
