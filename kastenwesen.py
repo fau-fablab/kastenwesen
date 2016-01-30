@@ -67,6 +67,15 @@ requests_log = logging.getLogger("requests")
 requests_log.setLevel(logging.WARNING)
 
 
+# workaround to always flush the output buffer
+real_print = print
+
+
+def print(s):
+    real_print(s)
+    sys.stderr.flush()
+    sys.stdout.flush()
+
 
 def exec_verbose(cmd, return_output=False):
     """
