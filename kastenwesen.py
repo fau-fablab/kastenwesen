@@ -91,23 +91,19 @@ def exec_verbose(cmd, return_output=False):
 
 
 def print_success(text):
-    logging.info(text)
     cprint(text, attrs=['bold'], color='green')
 
 
 def print_warning(text):
-    logging.warning(text)
     cprint(text, attrs=['bold'], color='red')
 
 
 def print_fatal(text):
-    logging.warning(text)
     cprint(text, attrs=['bold'], color='red')
     sys.exit(1)
 
 
 def print_bold(text):
-    logging.info(text)
     cprint(text, attrs=['bold'])
 
 
