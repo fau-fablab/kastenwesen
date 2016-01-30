@@ -1,0 +1,3 @@
+# debian crontab fragment
+# update status page every minute
+* *     * * *     root   /opt/kastenwesen/cron_status_html.sh

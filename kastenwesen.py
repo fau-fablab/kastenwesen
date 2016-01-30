@@ -558,15 +558,16 @@ def main():
     # an image may only depend on images *before* it in the list
     # linking is also only allowed to containers *before* it in the list.
 
-    # Lock against concurrent use
-    try:
-        lockfile = open("/var/lock/kastenwesen.lock", "w")
-    except IOError:
-        print_fatal("Cannot acquire lock. Are you root?")
-    try:
-        flock(lockfile.fileno(), LOCK_EX | LOCK_NB)
-    except IOError:
-        print_fatal("Another instance is already running. Exiting")
+    if not arguments["status"]:
+        # Lock against concurrent use, except for readonly operations
+        try:
+            lockfile = open("/var/lock/kastenwesen.lock", "w")
+        except IOError:
+            print_fatal("Cannot acquire lock. Are you root?")
+        try:
+            flock(lockfile.fileno(), LOCK_EX | LOCK_NB)
+        except IOError:
+            print_fatal("Another instance is already running. Exiting")
 
     check_config(CONFIG_CONTAINERS)
 
@@ -620,7 +621,7 @@ def main():
 CONFIG_CONTAINERS = []
 if __name__ == "__main__":
     # get config from current dir, or from /etc/kastenwesen
-    if not os.path.isfile("./kastenwesen_config.py"):
+    if not os.path.exists("./kastenwesen_config.py") and os.path.exists("/etc/kastenwesen"):
         os.chdir("/etc/kastenwesen/")
     # TODO hardcoded to the lower docker API version to run with ubuntu 14.04
     api_client = docker.Client(base_url='unix://var/run/docker.sock', version='1.12')

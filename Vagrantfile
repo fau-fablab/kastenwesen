@@ -63,12 +63,9 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
   
   config.vm.provision "shell" do |foobar|
-    foobar.inline = "cd /home/vagrant/share/ && ./install_dependencies_ubuntu_14_04.sh"
+    foobar.inline = "cd /home/vagrant/share/ && ./install_ubuntu_14_04.sh"
   end
   config.vm.provision "shell" do |foobar|
-    foobar.inline = "ln -fs /home/vagrant/share/kastenwesen.py /usr/local/bin/kastenwesen"
-  end
-  config.vm.provision "shell" do |foobar|
-    foobar.inline = "ln -fs /home/vagrant/share/example-config /home/vagrant/kastenwesen-config"
+    foobar.inline = "ln -fs /home/vagrant/share/example-config /etc/kastenwesen"
   end
 end
