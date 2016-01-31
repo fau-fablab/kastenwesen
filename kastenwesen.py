@@ -198,7 +198,7 @@ class AbstractContainer(object):
 
     def print_status(self, sleep_before=True):
         if self.only_build:
-            print_success("{}: only build".format(self.name))
+            print_success("{} (only build)".format(self.name))
             return True
         running = self.is_running()
         if not running:
@@ -234,7 +234,7 @@ class DockerContainer(AbstractContainer):
         """
         :param docker_options: commandline options to 'docker run'
         """
-        AbstractContainer.__init__(self, name, sleep_before_test)
+        AbstractContainer.__init__(self, name, sleep_before_test, only_build)
         self.image_name = self.name + ':latest'
         self.path = path
         self.docker_options = docker_options
