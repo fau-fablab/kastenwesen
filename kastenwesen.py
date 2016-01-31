@@ -161,28 +161,28 @@ class TCPPortTest(AbstractTest):
 
 
 class AbstractContainer(object):
-    def __init__(self, name, sleep_before_test=0.5):
+    def __init__(self, name, sleep_before_test=0.5, only_build=False):
         self.name = name
         self.tests = []
+        self.links = []
         self.sleep_before_test = sleep_before_test
+        self.only_build = only_build
 
     def add_test(self, test):
         assert isinstance(test, AbstractTest), "given test must be a AbstractTest subclass"
         self.tests.append(test)
 
+    def stop(self):
+        pass
 
-class DockerContainer(AbstractContainer):
-    def __init__(self, name, path, docker_options="", sleep_before_test=0.5):
+    def start(self):
+        pass
 
-        """
-        :param options: commandline options to 'docker run'
-        :param tests: dictionary {'sleep_before': <sleep time>, 'http': <list of http(s) URLs that must return HTTP OK>, 'verify_ssl': <True/False> verify SSL cert, 'port': <list of ports that must be listening>}
-        """
-        AbstractContainer.__init__(self, name, sleep_before_test)
-        self.image_name = self.name + ':latest'
-        self.path = path
-        self.docker_options = docker_options
-        self.links = []
+    def rebuild(self, ignore_cache=False):
+        pass
+
+    def is_running(self):
+        return False
 
     def test(self, sleep_before=True):
         if not self.tests:
@@ -195,6 +195,51 @@ class DockerContainer(AbstractContainer):
         if sleep_before:
             time.sleep(self.sleep_before_test)
         return success
+
+    def print_status(self, sleep_before=True):
+        if self.only_build:
+            print_success("{}: only build".format(self.name))
+            return True
+        running = self.is_running()
+        if not running:
+            print_warning("{name}: container is stopped".format(name=self.name))
+        if self.test(sleep_before):
+            if running:
+                print_success("{name} running, tests OK".format(name=self.name))
+                return True
+            else:
+                print_warning("{name}: container is stopped, but tests are successful. WTF?".format(name=self.name))
+        elif running:
+            print_warning("{name} running, but tests failed".format(name=self.name))
+        return False
+
+class CustomBuildscriptTask(AbstractContainer):
+    def __init__(self, name, build_command):
+        """
+        Run a custom build script for a build-only container.
+        
+        The environment variable IGNORE_CACHE is set to 0/1 depending on the use of --no-cache in 'kastenwesen rebuild'.
+        """
+        AbstractContainer.__init__(self, name, only_build=True)
+        self.build_command = build_command
+
+    def rebuild(self, ignore_cache=False):
+        # TODO handle ignore_cache
+        exec_verbose("IGNORE_CACHE={} ".format(int(ignore_cache)) + self.build_command)
+
+
+class DockerContainer(AbstractContainer):
+    def __init__(self, name, path, docker_options="", sleep_before_test=0.5, only_build=False, alias_tags=None):
+
+        """
+        :param docker_options: commandline options to 'docker run'
+        """
+        AbstractContainer.__init__(self, name, sleep_before_test)
+        self.image_name = self.name + ':latest'
+        self.path = path
+        self.docker_options = docker_options
+        self.links = []
+        self.alias_tags = alias_tags or []
 
     def add_link(self, link_to_container):
         """Add a link to the given container. The link alias will be the container name given in the config, so you can directly reach the container under its name."""
@@ -229,6 +274,8 @@ class DockerContainer(AbstractContainer):
         print_bold("rebuilding image " + self.image_name)
         nocache = "--no-cache" if ignore_cache else ""
         exec_verbose("docker build {nocache} -t {imagename} {path}".format(nocache=nocache, imagename=self.image_name, path=self.path))
+        for tag in self.alias_tags:
+            exec_verbose("docker tag -f {imagename} {tag}".format(imagename=self.image_name, tag=tag))
 
     def running_container_id(self):
         """ return id of last known container instance, or False otherwise"""
@@ -305,7 +352,7 @@ class DockerContainer(AbstractContainer):
         running_containers = api_client.containers()
         running_container_ids = [container['Id'] for container in running_containers]
         logging.debug("Running containers: " + str(running_container_ids))
-        config_container_ids = [container.running_container_id() for container in CONFIG_CONTAINERS]
+        config_container_ids = [container.running_container_id() for container in CONFIG_CONTAINERS if isinstance(container, DockerContainer)]
 
         # Check that no unmanaged containers are running from the same image
         for container in running_containers:
@@ -322,20 +369,6 @@ class DockerContainer(AbstractContainer):
             return status['State']['Running']
         except docker.errors.NotFound:
             return False
-
-    def print_status(self, sleep_before=True):
-        running = self.is_running()
-        if not running:
-            print_warning("{name}: container is stopped".format(name=self.name))
-        if self.test(sleep_before):
-            if running:
-                print_success("{name} running, tests OK".format(name=self.name))
-                return True
-            else:
-                print_warning("{name}: container is stopped, but tests are successful. WTF?".format(name=self.name))
-        elif running:
-            print_warning("{name} running, but tests failed".format(name=self.name))
-        return False
 
     def needs_package_updates(self):
         kastenwesen_path = os.path.dirname(os.path.realpath(__file__))
@@ -425,6 +458,9 @@ def restart_many(requested_containers):
             print_bold("Also starting necessary dependencies, if not yet running: {}".format(", ".join([str(i) for i in added_dep_containers])))
 
     for container in start_containers:
+        if container.only_build:
+            # container is only a meta container, not really started
+            continue
         if container in stop_containers or not container.is_running():
             container.start()
         container.print_status()
@@ -472,6 +508,8 @@ def cleanup_containers(min_age_days=0, simulate=False):
     config_container_ids = [c.running_container_id() for c in CONFIG_CONTAINERS]
     removed_containers = []
     for container in containers:
+        if not isinstance(container, DockerContainer):
+            continue
         if not (container['Status'].startswith('Exited') or container['Status'] == ''):
             # still running
             continue
@@ -504,6 +542,8 @@ def cleanup_images(min_age_days=0, simulate=False, simulated_deleted_containers=
     # get the list of real ids -- image ids in .containers() are sometimes abbreviated
     used_image_ids = []
     for container in containers:
+        if not isinstance(container, DockerContainer):
+            continue
         used_image_id = api_client.inspect_container(container['Id'])['Image']
         assert used_image_id in [img['Id'] for img in images], "Image {img} does not exist, but is used by container {container}".format(img=used_image_id, container=container)
         if container['Id'] in simulated_deleted_containers:
@@ -515,11 +555,9 @@ def cleanup_images(min_age_days=0, simulate=False, simulated_deleted_containers=
         if image['RepoTags'] != [u'<none>:<none>']:
             # image is tagged, skip
             raise Exception("this should not happen, as we filtered for dangling images only")
-            continue
         if image['Id'] in used_image_ids:
             # image is in use, skip
             raise Exception("this should not happen, as we filtered for dangling images only")
-            continue
         if image['Created'] > time.time() - 60*60*24*min_age_days:
             # image is too young, skip
             continue
@@ -630,11 +668,10 @@ if __name__ == "__main__":
         os.chdir("/etc/kastenwesen/")
     # TODO hardcoded to the lower docker API version to run with ubuntu 14.04
     api_client = docker.Client(base_url='unix://var/run/docker.sock', version='1.12')
-    try:
-        config_containers = []
-        # set config_containers from conf file
-        execfile('kastenwesen_config.py')
-        CONFIG_CONTAINERS = config_containers
-    except IOError:
+    if not os.path.exists("kastenwesen_config.py"):
         print_fatal("No kastenwesen_config.py found in the current directory or in /etc/kastenwesen")
+    config_containers = []
+    # set config_containers from conf file
+    execfile('kastenwesen_config.py')
+    CONFIG_CONTAINERS = config_containers
     main()
