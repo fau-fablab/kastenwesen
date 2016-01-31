@@ -258,12 +258,15 @@ class DockerContainer(AbstractContainer):
         self.links.append(link_to_container)
 
     def add_volume(self, host_path, container_path, readonly=False):
-        options = ','.join([
-            'ro' if readonly else '',
-            'Z' if get_selinux_status() == 'enforcing' else ''
-        ])
-        vol = ":".join([host_path, container_path, options])
-        self.docker_options += " -v {0}  ".format(vol)
+        vol = [host_path, container_path]
+        options = []
+        if readonly:
+            options.append('ro')
+        if get_selinux_status() == 'enforcing':
+            options.append('Z')
+        if options:
+            vol.append(','.join(options))
+        self.docker_options += " -v {0}  ".format(':'.join(vol))
 
     def add_port(self, host_port, container_port, test=True):
         """
