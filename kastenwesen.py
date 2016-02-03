@@ -114,7 +114,8 @@ def get_selinux_status():
             'getenforce 2>/dev/null || echo "disabled"',
             shell=True).strip().lower()
     except subprocess.CalledProcessError as e:
-        print_warning(e)
+        print_warning("Error while running 'getenforce' to get current SELinux status")
+        print(e)
         return 'disabled'
 
 
