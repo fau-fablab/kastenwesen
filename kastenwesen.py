@@ -217,7 +217,7 @@ class CustomBuildscriptTask(AbstractContainer):
     def __init__(self, name, build_command):
         """
         Run a custom build script for a build-only container.
-        
+
         The environment variable IGNORE_CACHE is set to 0/1 depending on the use of --no-cache in 'kastenwesen rebuild'.
         """
         AbstractContainer.__init__(self, name, only_build=True)
@@ -665,12 +665,12 @@ def main():
 CONFIG_CONTAINERS = []
 if __name__ == "__main__":
     # get config from current dir, or from /etc/kastenwesen
-    if not os.path.exists("./kastenwesen_config.py") and os.path.exists("/etc/kastenwesen"):
+    if not os.path.isfile("./kastenwesen_config.py") and os.path.isdir("/etc/kastenwesen"):
         os.chdir("/etc/kastenwesen/")
     # TODO hardcoded to the lower docker API version to run with ubuntu 14.04
     api_client = docker.Client(base_url='unix://var/run/docker.sock', version='1.12')
-    if not os.path.exists("kastenwesen_config.py"):
-        print_fatal("No kastenwesen_config.py found in the current directory or in /etc/kastenwesen")
+    if not os.path.isfile("kastenwesen_config.py"):
+        print_fatal("No 'kastenwesen_config.py' found in the current directory or in '{0}'".format(os.getcwd()))
     config_containers = []
     # set config_containers from conf file
     execfile('kastenwesen_config.py')
