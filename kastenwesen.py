@@ -247,6 +247,7 @@ class DockerContainer(AbstractContainer):
         self.links.append(link_to_container)
 
     def add_volume(self, host_path, container_path, readonly=False):
+        assert os.path.exists(host_path), "volume path {p} doesn't exist".format(p=host_path)
         self.docker_options += " -v {0}:{1}".format(host_path, container_path)
         if readonly:
             self.docker_options += ":ro"
