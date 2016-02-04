@@ -107,6 +107,18 @@ def print_bold(text):
     cprint(text, attrs=['bold'])
 
 
+def get_selinux_status():
+    """:return: (disabled|permissive|enforcing)"""
+    try:
+        return subprocess.check_output(
+            'getenforce 2>/dev/null || echo "disabled"',
+            shell=True).strip().lower()
+    except subprocess.CalledProcessError as e:
+        print_warning("Error while running 'getenforce' to get current SELinux status")
+        print(e)
+        return 'disabled'
+
+
 class AbstractTest(object):
     def run(self):
         """ run the test. May print error messages if something is not right.
@@ -248,10 +260,15 @@ class DockerContainer(AbstractContainer):
 
     def add_volume(self, host_path, container_path, readonly=False):
         assert os.path.exists(host_path), "volume path {p} doesn't exist".format(p=host_path)
-        self.docker_options += " -v {0}:{1}".format(host_path, container_path)
+        vol = [host_path, container_path]
+        options = []
         if readonly:
-            self.docker_options += ":ro"
-        self.docker_options += "  "
+            options.append('ro')
+        if get_selinux_status() == 'enforcing':
+            options.append('Z')
+        if options:
+            vol.append(','.join(options))
+        self.docker_options += " -v {0}  ".format(':'.join(vol))
 
     def add_port(self, host_port, container_port, test=True):
         """
@@ -675,4 +692,6 @@ if __name__ == "__main__":
     # set config_containers from conf file
     execfile('kastenwesen_config.py')
     CONFIG_CONTAINERS = config_containers
+    if get_selinux_status() == 'enforcing':
+        print_bold("SELinux status is 'enforcing'")
     main()
