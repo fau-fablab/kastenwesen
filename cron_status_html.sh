@@ -1,6 +1,22 @@
-#!/bin/sh
-{
-	which aha > /dev/null ||  { date; echo "aha not installed"; exit 0; }
-	( date; kastenwesen status 2>&1 || echo "Error."; ) | aha --title "`hostname --fqdn`"
-} > /var/run/kastenwesen_status.html
+#!/bin/bash
+mkdir -p /var/run/kastenwesen_status/
 
+# check status, store output
+OKAY=true
+( date; kastenwesen status 2>&1 ) > /var/run/kastenwesen_status/colored || OKAY=false
+
+# generate HTML
+{
+	cat /var/run/kastenwesen_status/colored | aha --title "`hostname --fqdn`" || echo "Error -- 'aha' not installed?"
+} > /var/run/kastenwesen_status/status.html
+
+# generate text output
+cat /var/run/kastenwesen_status/colored | sed -r 's/\x1b[\[0-9;]+m//g' > /var/run/kastenwesen_status/text
+
+
+# send mail to $MAIL_USER if last mail is more than MAIL_MAX_MIN ago
+MAIL_MAX_MIN=30
+MAIL_USER=root
+SKIP_MAIL=false
+test -e  /var/run/kastenwesen_status/last_mail && echo [[ $(stat -L --format %Y /var/run/kastenwesen_status/last_mail) -gt $(date -d "$MAIL_MAX_MIN minutes ago" +%s) ]] && SKIP_MAIL=true
+! $OKAY && ! $SKIP_MAIL && { touch /var/run/kastenwesen_status/last_mail && cat /var/run/kastenwesen_status/text | echo mail -s "`hostname --fqdn` kastenwesen status" $MAIL_USER; }
