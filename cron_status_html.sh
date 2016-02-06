@@ -21,4 +21,4 @@ MAIL_SKIP_AFTER_RUN_MIN=2
 SKIP_MAIL=false
 test -e  /var/run/kastenwesen_status/last_mail && [[ $(stat -L --format %Y /var/run/kastenwesen_status/last_mail) -gt $(date -d "$MAIL_MAX_MIN minutes ago" +%s) ]] && SKIP_MAIL=true
 test -e  /var/lock/kastenwesen.lock && [[ $(stat -L --format %Y /var/lock/kastenwesen.lock) -gt $(date -d "$MAIL_SKIP_AFTER_RUN_MIN minutes ago" +%s) ]] && SKIP_MAIL=true
-! $OKAY && ! $SKIP_MAIL && { touch /var/run/kastenwesen_status/last_mail && cat /var/run/kastenwesen_status/text | echo mail -s "`hostname --fqdn` kastenwesen status" $MAIL_USER; }
+! $OKAY && ! $SKIP_MAIL && { touch /var/run/kastenwesen_status/last_mail && cat /var/run/kastenwesen_status/text | mail -s "`hostname --fqdn` kastenwesen status" $MAIL_USER; }
