@@ -6,3 +6,12 @@
 
 # Vagrant
 .vagrant
+
+# virtual env
+*env*
+
+# setup
+*.swp
+build
+dist
+*.egg-info
