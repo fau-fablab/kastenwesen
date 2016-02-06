@@ -356,18 +356,18 @@ class DockerContainer(AbstractContainer):
         self.logs()
 
     def logs(self):
-        print(api_client.logs(container=self.running_container_name(), stream=False))
+        print(API_CLIENT.logs(container=self.running_container_name(), stream=False))
 
     def follow_logs(self):
         try:
-            for l in (api_client.logs(container=self.running_container_name(), stream=True, timestamps=True, stdout=True, stderr=True, tail=999)):
+            for l in (API_CLIENT.logs(container=self.running_container_name(), stream=True, timestamps=True, stdout=True, stderr=True, tail=999)):
                 print(l)
         except KeyboardInterrupt:
             sys.exit(0)
 
     def check_for_unmanaged_containers(self):
         """ warn if any containers not managed by kastenwesen are running from the same image """
-        running_containers = api_client.containers()
+        running_containers = API_CLIENT.containers()
         running_container_ids = [container['Id'] for container in running_containers]
         logging.debug("Running containers: " + str(running_container_ids))
         config_container_ids = [container.running_container_id() for container in CONFIG_CONTAINERS if isinstance(container, DockerContainer)]
@@ -383,7 +383,7 @@ class DockerContainer(AbstractContainer):
         if not self.running_container_id():
             return False
         try:
-            status = api_client.inspect_container(self.running_container_id())
+            status = API_CLIENT.inspect_container(self.running_container_id())
             return status['State']['Running']
         except docker.errors.NotFound:
             return False
@@ -427,7 +427,7 @@ def ordered_by_dependency(containers, add_dependencies=False, add_reverse_depend
         while something_changed:
             # loop through all links, looking for something that can be directly or indirectly broken by stopping one of the given containers
             something_changed = False
-            for container in config_containers:
+            for container in CONFIG_CONTAINERS:
                 for link in container.links:
                     if link in containers or link in reverse_dependencies:
                         # stopping the given list will break this container
@@ -522,7 +522,7 @@ def cleanup_containers(min_age_days=0, simulate=False):
     # -> only delete containers known to this script? that would require logging all previous IDs
 
     # get all non-running containers
-    containers = api_client.containers(trunc=False, all=True)
+    containers = API_CLIENT.containers(trunc=False, all=True)
     config_container_ids = [c.running_container_id() for c in CONFIG_CONTAINERS]
     removed_containers = []
     for container in containers:
@@ -554,21 +554,21 @@ def cleanup_images(min_age_days=0, simulate=False, simulated_deleted_containers=
     if not simulated_deleted_containers:
         simulated_deleted_containers = []
 
-    images = api_client.images(all=True)
+    images = API_CLIENT.images(all=True)
     # get all running and non-running containers
-    containers = api_client.containers(all=True, trunc=False)
+    containers = API_CLIENT.containers(all=True, trunc=False)
     # get the list of real ids -- image ids in .containers() are sometimes abbreviated
     used_image_ids = []
     for container in containers:
         if not isinstance(container, DockerContainer):
             continue
-        used_image_id = api_client.inspect_container(container['Id'])['Image']
+        used_image_id = API_CLIENT.inspect_container(container['Id'])['Image']
         assert used_image_id in [img['Id'] for img in images], "Image {img} does not exist, but is used by container {container}".format(img=used_image_id, container=container)
         if container['Id'] in simulated_deleted_containers:
             continue
         used_image_ids.append(used_image_id)
 
-    dangling_images = api_client.images(all=True, filters={"dangling": True})
+    dangling_images = API_CLIENT.images(all=True, filters={"dangling": True})
     for image in dangling_images:
         if image['RepoTags'] != [u'<none>:<none>']:
             # image is tagged, skip
@@ -614,6 +614,20 @@ def main():
         loglevel = logging.DEBUG
     logging.basicConfig(level=loglevel)
 
+    global API_CLIENT
+    global CONFIG_CONTAINERS
+    # get config from current dir, or from /etc/kastenwesen
+    if not os.path.isfile("./kastenwesen_config.py") and os.path.isdir("/etc/kastenwesen"):
+        os.chdir("/etc/kastenwesen/")
+    # TODO hardcoded to the lower docker API version to run with ubuntu 14.04
+    API_CLIENT = docker.Client(base_url='unix://var/run/docker.sock', version='1.12')
+    if not os.path.isfile("kastenwesen_config.py"):
+        print_fatal("No 'kastenwesen_config.py' found in the current directory or in '{0}'".format(os.getcwd()))
+    config_containers = []
+    # set config_containers from conf file
+    exec(open("./kastenwesen_config.py").read())
+    CONFIG_CONTAINERS = config_containers
+
     # CONFIG
     # A list of containers, ordered by dependency (e.g. database -> web application -> web application client, ...)
     # an image may only depend on images *before* it in the list
@@ -631,6 +645,10 @@ def main():
             print_fatal("Another instance is already running. Exiting")
 
     check_config(CONFIG_CONTAINERS)
+    if len(CONFIG_CONTAINERS) == 0:
+        print_warning("No containers are defined")
+    if get_selinux_status() == 'enforcing':
+        print_bold("SELinux status is 'enforcing'")
 
     # parse common arguments
     given_containers = CONFIG_CONTAINERS
@@ -679,19 +697,5 @@ def main():
     else:
         print(__doc__)
 
-CONFIG_CONTAINERS = []
 if __name__ == "__main__":
-    # get config from current dir, or from /etc/kastenwesen
-    if not os.path.isfile("./kastenwesen_config.py") and os.path.isdir("/etc/kastenwesen"):
-        os.chdir("/etc/kastenwesen/")
-    # TODO hardcoded to the lower docker API version to run with ubuntu 14.04
-    api_client = docker.Client(base_url='unix://var/run/docker.sock', version='1.12')
-    if not os.path.isfile("kastenwesen_config.py"):
-        print_fatal("No 'kastenwesen_config.py' found in the current directory or in '{0}'".format(os.getcwd()))
-    config_containers = []
-    # set config_containers from conf file
-    execfile('kastenwesen_config.py')
-    CONFIG_CONTAINERS = config_containers
-    if get_selinux_status() == 'enforcing':
-        print_bold("SELinux status is 'enforcing'")
     main()
