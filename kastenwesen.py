@@ -56,6 +56,7 @@ import subprocess
 import socket
 import time
 import datetime
+import dateutil.parser
 from termcolor import colored, cprint
 import os
 from docopt import docopt
@@ -226,6 +227,15 @@ class AbstractContainer(object):
             print_warning("{name} running, but tests failed".format(name=self.name))
         return False
 
+    def needs_package_updates(self):
+        """
+        Run a check for package updates
+
+        :return: ``True`` if any packages could be updated
+        :rtype: bool
+        """
+        return False
+
 class CustomBuildscriptTask(AbstractContainer):
     def __init__(self, name, build_command):
         """
@@ -357,11 +367,16 @@ class DockerContainer(AbstractContainer):
         self.logs()
 
     def logs(self, follow=False):
+        MAX_LINES=1000
         if not follow:
-            print(api_client.logs(container=self.running_container_name(), stream=False))
+            out=api_client.logs(container=self.running_container_name(), stream=False, tail=MAX_LINES)
+            lines = sum([1 for char in out if char == '\n'])
+            if lines > MAX_LINES - 3:
+                print_warning("Output is truncated, printing only the last {} lines".format(MAX_LINES))
+            print(out)
         else:
             try:
-                for l in (api_client.logs(container=self.running_container_name(), stream=True, timestamps=True, stdout=True, stderr=True, tail=999)):
+                for l in (api_client.logs(container=self.running_container_name(), stream=True, timestamps=True, stdout=True, stderr=True, tail=MAX_LINES)):
                     print(l)
             except KeyboardInterrupt:
                 sys.exit(0)
@@ -391,7 +406,7 @@ class DockerContainer(AbstractContainer):
 
     def needs_package_updates(self):
         kastenwesen_path = os.path.dirname(os.path.realpath(__file__))
-        cmd = "docker run --rm -v {kastenwesen_path}/helper/:/usr/local/kastenwesen_tmp/:ro {image} /usr/local/kastenwesen_tmp/check_for_updates.py".format(image=self.image_name, kastenwesen_path=kastenwesen_path)
+        cmd = "docker run --rm --user=root -v {kastenwesen_path}/helper/:/usr/local/kastenwesen_tmp/:ro {image} /usr/local/kastenwesen_tmp/check_for_updates.py".format(image=self.image_name, kastenwesen_path=kastenwesen_path)
         updates = exec_verbose(cmd, return_output=True)
         if updates:
             print_warning("Container {} has outdated packages: {}".format(self.name, updates))
@@ -524,18 +539,26 @@ def cleanup_containers(min_age_days=0, simulate=False):
 
     # get all non-running containers
     containers = api_client.containers(trunc=False, all=True)
-    config_container_ids = [c.running_container_id() for c in CONFIG_CONTAINERS]
+    config_container_ids = [c.running_container_id() for c in CONFIG_CONTAINERS \
+                            if isinstance(c, DockerContainer)]
     removed_containers = []
     for container in containers:
-        if not isinstance(container, DockerContainer):
+        state = api_client.inspect_container(container['Id'])['State']
+        if state['Running']:
             continue
-        if not (container['Status'].startswith('Exited') or container['Status'] == ''):
-            # still running
-            continue
-        if container['Created'] > time.time() - 60*60*24*min_age_days:
-            # TODO this filters by creation time, not stop time.
-            # too young
-            continue
+        date_finished = api_client.inspect_container(container['Id'])['State']['FinishedAt']
+        if date_finished == "0001-01-01T00:00:00Z":
+            date_finished = None
+        else:
+            date_finished = dateutil.parser.parse(date_finished)
+            date_finished = date_finished.replace(tzinfo=None) # the returned timestamp is always UTC
+        now = datetime.datetime.utcnow()
+        if date_finished:
+            assert date_finished > datetime.datetime(2002,01,01)
+            if date_finished  > now - datetime.timedelta(days=1)*min_age_days:
+                # too young
+                continue
+            assert datetime.datetime.fromtimestamp(container['Created']) <= date_finished
         if container['Id'] in config_container_ids:
             print_warning("Not removing stopped container {} because it is the last known instance".format(container['Names']))
             # the last known instance is never removed, even if it was stopped ages ago
@@ -561,22 +584,20 @@ def cleanup_images(min_age_days=0, simulate=False, simulated_deleted_containers=
     # get the list of real ids -- image ids in .containers() are sometimes abbreviated
     used_image_ids = []
     for container in containers:
-        if not isinstance(container, DockerContainer):
-            continue
         used_image_id = api_client.inspect_container(container['Id'])['Image']
         assert used_image_id in [img['Id'] for img in images], "Image {img} does not exist, but is used by container {container}".format(img=used_image_id, container=container)
         if container['Id'] in simulated_deleted_containers:
             continue
         used_image_ids.append(used_image_id)
 
-    dangling_images = api_client.images(all=True, filters={"dangling": True})
+    dangling_images = api_client.images(filters={"dangling": True})
     for image in dangling_images:
         if image['RepoTags'] != [u'<none>:<none>']:
             # image is tagged, skip
             raise Exception("this should not happen, as we filtered for dangling images only")
         if image['Id'] in used_image_ids:
             # image is in use, skip
-            raise Exception("this should not happen, as we filtered for dangling images only")
+            continue
         if image['Created'] > time.time() - 60*60*24*min_age_days:
             # image is too young, skip
             continue
@@ -585,7 +606,10 @@ def cleanup_images(min_age_days=0, simulate=False, simulated_deleted_containers=
             print_bold("would delete unused old image {}".format(image['Id']))
         else:
             print_bold("deleting unused old image {}".format(image['Id']))
-            exec_verbose("docker rmi " + image['Id'])
+            try:
+                exec_verbose("docker rmi --no-prune=true " + image['Id'])
+            except subprocess.CalledProcessError:
+                print_warning("Failed to remove unused image {}".format(image['Id']))
 
 
 def print_status_and_exit(given_containers):
@@ -620,7 +644,7 @@ def main():
     # an image may only depend on images *before* it in the list
     # linking is also only allowed to containers *before* it in the list.
 
-    if not arguments["status"]:
+    if not arguments["status"] or arguments["check-for-updates"]:
         # Lock against concurrent use, except for readonly operations
         try:
             lockfile = open("/var/lock/kastenwesen.lock", "w")
