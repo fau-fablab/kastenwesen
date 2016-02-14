@@ -28,7 +28,8 @@ Usage:
   kastenwesen (status|restart|stop) [<container>...]
   kastenwesen rebuild [--no-cache] [<container>...]
   kastenwesen check-for-updates [<container>...]
-  kastenwesen (shell|log) <container>
+  kastenwesen shell <container>
+  kastenwesen log [-f] <container>
   kastenwesen cleanup [--simulate] [--min-age=<days>]
 
 Options:
@@ -355,15 +356,15 @@ class DockerContainer(AbstractContainer):
         print("Log:")
         self.logs()
 
-    def logs(self):
-        print(api_client.logs(container=self.running_container_name(), stream=False))
-
-    def follow_logs(self):
-        try:
-            for l in (api_client.logs(container=self.running_container_name(), stream=True, timestamps=True, stdout=True, stderr=True, tail=999)):
-                print(l)
-        except KeyboardInterrupt:
-            sys.exit(0)
+    def logs(self, follow=False):
+        if not follow:
+            print(api_client.logs(container=self.running_container_name(), stream=False))
+        else:
+            try:
+                for l in (api_client.logs(container=self.running_container_name(), stream=True, timestamps=True, stdout=True, stderr=True, tail=999)):
+                    print(l)
+            except KeyboardInterrupt:
+                sys.exit(0)
 
     def check_for_unmanaged_containers(self):
         """ warn if any containers not managed by kastenwesen are running from the same image """
@@ -653,7 +654,7 @@ def main():
     elif arguments["shell"]:
         given_containers[0].interactive_shell()
     elif arguments["log"]:
-        given_containers[0].logs()
+        given_containers[0].logs(follow=arguments["-f"])
     elif arguments["cleanup"]:
         if arguments["--min-age"] is None:
             min_age = 31
