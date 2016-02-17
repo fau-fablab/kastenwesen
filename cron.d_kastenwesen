@@ -1,4 +1,7 @@
 # debian crontab fragment
-# update status page every minute
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/kastenwesen
+# update status page every minute
 * *     * * *     root   /opt/kastenwesen/cron_status_html.sh
+
+# every few hours: check for updates and send email
+42 8,12,17,21     * * *     root   kastenwesen check-for-updates 2>&1 1>/dev/null | sed -r 's/\x1b[\[0-9;]+m//g'
