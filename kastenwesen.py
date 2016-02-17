@@ -97,11 +97,11 @@ def print_success(text):
 
 
 def print_warning(text):
-    cprint(text, attrs=['bold'], color='red')
+    cprint(text, attrs=['bold'], color='red', file=sys.stderr)
 
 
 def print_fatal(text):
-    cprint(text, attrs=['bold'], color='red')
+    cprint(text, attrs=['bold'], color='red', file=sys.stderr)
     sys.exit(1)
 
 
