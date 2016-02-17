@@ -558,7 +558,9 @@ def cleanup_containers(min_age_days=0, simulate=False):
             if date_finished  > now - datetime.timedelta(days=1)*min_age_days:
                 # too young
                 continue
-            assert datetime.datetime.fromtimestamp(container['Created']) <= date_finished
+            date_created = datetime.datetime.utcfromtimestamp(container['Created'])
+            date_created = date_created.replace(tzinfo=None) # the result is always UTC
+            assert date_created <= date_finished, "Container creation time is after the time it finished: container='{}', parsed creation time={} --  state='{}'  parsed finishing time={}".format(container, datetime.datetime.fromtimestamp(container['Created']), api_client.inspect_container(container['Id'])['State'], date_finished)
         if container['Id'] in config_container_ids:
             print_warning("Not removing stopped container {} because it is the last known instance".format(container['Names']))
             # the last known instance is never removed, even if it was stopped ages ago
