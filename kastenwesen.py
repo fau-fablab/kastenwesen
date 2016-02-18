@@ -698,7 +698,9 @@ def main():
     elif arguments["check-for-updates"]:
         containers_with_updates = need_package_updates(given_containers)
         if containers_with_updates:
-            print_warning("Some containers have outdated packages: {}".format(" ".join([cont.name for cont in containers_with_updates])))
+            containers_str = " ".join([cont.name for cont in containers_with_updates])
+            print_warning("Some containers have outdated packages: {}".format(containers_str))
+            print_warning("Rebuild them with: kastenwesen rebuild --no-cache {}".format(containers_str))
             sys.exit(1)
         else:
             print_success("Packages are up to date.")
