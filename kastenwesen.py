@@ -212,8 +212,16 @@ class AbstractContainer(object):
 
     def print_status(self, sleep_before=True):
         if self.only_build:
-            print_success("{} (only build)".format(self.name))
-            return True
+            if self.tests:
+                if not self.test(sleep_before):
+                    print_warning("{name}: tests failed".format(name=self.name))
+                    return False
+                else:
+                    print_success("{}: tests OK".format(self.name))
+                    return True
+            else:
+                print_success("{} (only build)".format(self.name))
+                return True
         running = self.is_running()
         if not running:
             print_warning("{name}: container is stopped".format(name=self.name))
@@ -250,6 +258,12 @@ class CustomBuildscriptTask(AbstractContainer):
         # TODO handle ignore_cache
         exec_verbose("IGNORE_CACHE={} ".format(int(ignore_cache)) + self.build_command)
 
+class MonitoringTask(AbstractContainer):
+    def __init__(self, name):
+        """
+        pseudo-'container' that only runs tests, nothing else. Can be used for monitoring external services from kastenwesen status.
+        """
+        AbstractContainer.__init__(self, name, only_build=True)
 
 class DockerContainer(AbstractContainer):
     def __init__(self, name, path, docker_options="", sleep_before_test=0.5, only_build=False, alias_tags=None):
