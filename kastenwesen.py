@@ -69,6 +69,8 @@ requests.packages.urllib3.disable_warnings()
 requests_log = logging.getLogger("requests")
 requests_log.setLevel(logging.WARNING)
 
+# time to wait between starting containers and checking the status
+STARTUP_GRACETIME = 2
 
 # workaround to always flush the output buffer
 real_print = print
@@ -385,13 +387,9 @@ class DockerContainer(AbstractContainer):
         cmdline = "docker run -d --memory=2g  --cidfile={container_id_file} --name={new_name} {docker_opts} {image_name} ".format(container_id_file=container_id_file, new_name=new_name, docker_opts=docker_options, image_name=self.image_name)
         print_bold("Starting container {}".format(new_name))
         logging.info("Starting {} container: {}".format(self.name, cmdline))
-        # TODO volumes
         exec_verbose(cmdline)
         self._set_running_container_name(new_name)
-        logging.debug("waiting 2s for startup")
-        sleep(2)
-        print("Log:")
-        self.logs()
+
 
     def logs(self, follow=False):
         MAX_LINES=1000
@@ -524,7 +522,6 @@ def restart_many(requested_containers):
             continue
         if container in stop_containers or not container.is_running():
             container.start()
-        container.print_status()
 
 
 def stop_many(requested_containers, message_restart=False):
@@ -706,12 +703,14 @@ def main():
         print_status_and_exit(given_containers)
     elif arguments["restart"]:
         restart_many(given_containers)
+        time.sleep(STARTUP_GRACETIME)
         print_status_and_exit(given_containers)
     elif arguments["status"]:
         print_status_and_exit(given_containers)
     elif arguments["start"]:
         restart_many(container for container in given_containers
                      if not (container.is_running() or container.only_build))
+        time.sleep(STARTUP_GRACETIME)
         print_status_and_exit(given_containers)
     elif arguments["stop"]:
         stop_many(given_containers)
