@@ -25,7 +25,7 @@ kastenwesen: a python tool for managing multiple docker containers
 
 Usage:
   kastenwesen help
-  kastenwesen (status|restart|stop) [<container>...]
+  kastenwesen (status|start|restart|stop) [<container>...]
   kastenwesen rebuild [--no-cache] [<container>...]
   kastenwesen check-for-updates [<container>...]
   kastenwesen shell <container>
@@ -39,6 +39,7 @@ Actions explained:
   status: show status
   rebuild: rebuild and restart. Takes care of dependencies.
   stop: stop a container or stop all containers. Also stops dependent containers (e.g. web application is stopped if you stop its database container)
+  start: inverse of stop. Due to the way how docker links work, some additional containers will automatically be restarted to fix links.
   restart: stop and start again
   shell: exec a shell inside the running container
   cleanup: carefully remove old containers and images that are no longer used
@@ -373,7 +374,12 @@ class DockerContainer(AbstractContainer):
         new_name = self.name + datetime.datetime.now().strftime("-%Y-%m-%d_%H_%M_%S")
         docker_options = ""
         for linked_container in self.links:
-            assert linked_container.is_running(), "linked container(s) {} is/are not running".format(', '.join(['"%s"' % str(l) for l in self.links]))
+            if not linked_container.is_running():
+                # linked container isn't running. This will only happen if startup of one container fails.
+                print_warning("linked container {} is not running - container {} "
+                              "will be missing this link until being restarted!"
+                              .format(linked_container.name, self.name))
+                continue
             docker_options += "--link={name}:{alias} ".format(name=linked_container.running_container_name(), alias=linked_container.name)
         docker_options += self.docker_options
         cmdline = "docker run -d --memory=2g  --cidfile={container_id_file} --name={new_name} {docker_opts} {image_name} ".format(container_id_file=container_id_file, new_name=new_name, docker_opts=docker_options, image_name=self.image_name)
@@ -457,7 +463,7 @@ def ordered_by_dependency(containers, add_dependencies=False, add_reverse_depend
     :param bool add_reverse_dependencies: Add any containers that depend on the given ones. (useful for stopping)
     """
 
-    containers = copy(containers)
+    containers = list(containers)
     if add_reverse_dependencies:
         reverse_dependencies = set(containers)
         something_changed = True
@@ -505,7 +511,7 @@ def ordered_by_dependency(containers, add_dependencies=False, add_reverse_depend
 
 def restart_many(requested_containers):
     # also restart the containers that will be broken by this:
-    stop_containers = stop_many(requested_containers)
+    stop_containers = stop_many(requested_containers, message_restart=True)
 
     start_containers = ordered_by_dependency(stop_containers, add_dependencies=True)
     added_dep_containers = [container for container in start_containers if container not in stop_containers]
@@ -521,7 +527,7 @@ def restart_many(requested_containers):
         container.print_status()
 
 
-def stop_many(requested_containers):
+def stop_many(requested_containers, message_restart=False):
     """
     Stop the given containers and all that that depend on them (i.e. are linked to them)
 
@@ -530,12 +536,19 @@ def stop_many(requested_containers):
     :rtype: list[AbstractContainer]
     :return: list of all containers that were stopped
              (includes the ones stopped because of dependencies)
+
+    :param bool message_restart:
+        Will the containers be restarted later?
+        This only affects the log output, not the actions taken
     """
 
     stop_containers = list(reversed(ordered_by_dependency(requested_containers, add_reverse_dependencies=True)))
-    added_dep_containers = [container for container in stop_containers if container not in requested_containers]
+    added_dep_containers = [container for container in stop_containers
+                            if (container not in requested_containers and container.is_running())]
     if added_dep_containers:
-            print_bold("Also stopping containers affected by this action: {}".format(", ".join([str(i) for i in added_dep_containers])))
+            print_bold("Also {verb} containers affected by this action: {containers}"
+                       .format(verb="restarting" if message_restart else "stopping",
+                               containers=", ".join([str(i) for i in added_dep_containers])))
     for container in stop_containers:
         container.stop()
     return stop_containers
@@ -695,6 +708,10 @@ def main():
         restart_many(given_containers)
         print_status_and_exit(given_containers)
     elif arguments["status"]:
+        print_status_and_exit(given_containers)
+    elif arguments["start"]:
+        restart_many(container for container in given_containers
+                     if not (container.is_running() or container.only_build))
         print_status_and_exit(given_containers)
     elif arguments["stop"]:
         stop_many(given_containers)
