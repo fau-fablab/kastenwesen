@@ -295,15 +295,22 @@ class DockerContainer(AbstractContainer):
             vol.append(','.join(options))
         self.docker_options += " -v {0}  ".format(':'.join(vol))
 
-    def add_port(self, host_port, container_port, test=True):
+    def add_port(self, host_port, container_port, host_addr=None, test=True):
         """
-        forward incoming connections on host_post to container_port inside the container.
+        forward incoming connections on host_addr:host_post to container_port inside the container.
 
         :param boolean test: test for an open TCP server on the port, raise error if nothing is listening there
+
+        :param host_addr: host IP (or name) to listen on, or ``None`` to listen on all interfaces
+        :type host_addr: str | None
         """
-        self.docker_options += " -p {0}:{1}".format(host_port, container_port)
+        if host_addr:
+            self.docker_options += " -p {host_addr}:{host_port}:{container_port}".format(host_port=host_port, container_port=container_port, host_addr=host_addr)
+        else:
+            self.docker_options += " -p {host_port}:{container_port}".format(host_port=host_port, container_port=container_port)
+
         if test:
-            self.add_test(TCPPortTest(port=host_port))
+            self.add_test(TCPPortTest(port=host_port, host=host_addr))
 
     def __str__(self):
         return self.name

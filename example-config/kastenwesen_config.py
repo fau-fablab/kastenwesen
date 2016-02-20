@@ -8,7 +8,7 @@ config_containers = []
 # ===================================== #
 # Linux (Ubuntu 14.04) base image       #
 #########################################
-my_linux_base = DockerContainer(name="my-linux-base", path="./my-linux-base/")
+my_linux_base = DockerContainer(name="my-linux-base", path="./my-linux-base/", only_build=True)
 config_containers.append(my_linux_base)
 
 # TODO dependency on my_linux_base, without linking
@@ -39,10 +39,11 @@ config_containers.append(test1)
 # test2                                 #
 # ===================================== #
 # A testserver listening on port 1232   #
+# only listenining on localhost         #
 #########################################
 test2 = DockerContainer(name="test2", path="./test2/")
 test2.add_link(test1),
-test2.add_port(host_port=1232, container_port=1234)
+test2.add_port(host_addr="127.0.0.1", host_port=1232, container_port=1234)
 config_containers.append(test2)
 
 #########################################
