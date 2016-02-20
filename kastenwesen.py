@@ -24,7 +24,7 @@
 kastenwesen: a python tool for managing multiple docker containers
 
 Usage:
-  kastenwesen help
+  kastenwesen [help]
   kastenwesen (status|start|restart|stop) [<container>...]
   kastenwesen rebuild [--no-cache] [<container>...]
   kastenwesen check-for-updates [<container>...]
