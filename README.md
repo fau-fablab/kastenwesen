@@ -1,4 +1,4 @@
-# Kastenwesen
+# Kastenwesen ╰［°‿°］╯
 
 [![Build Status](https://travis-ci.org/fau-fablab/kastenwesen.svg?branch=master)](https://travis-ci.org/fau-fablab/kastenwesen)
 
