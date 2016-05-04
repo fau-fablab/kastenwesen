@@ -404,11 +404,11 @@ class DockerContainer(AbstractContainer):
             lines = sum([1 for char in out if char == '\n'])
             if lines > MAX_LINES - 3:
                 print_warning("Output is truncated, printing only the last {} lines".format(MAX_LINES))
-            print(out)
+            sys.stdout.write(out)
         else:
             try:
                 for l in (api_client.logs(container=self.running_container_name(), stream=True, timestamps=True, stdout=True, stderr=True, tail=MAX_LINES)):
-                    print(l)
+                    sys.stdout.write(l)
             except KeyboardInterrupt:
                 sys.exit(0)
 
