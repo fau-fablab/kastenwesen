@@ -28,7 +28,7 @@ Usage:
   kastenwesen (status|start|restart|stop) [<container>...]
   kastenwesen rebuild [--no-cache] [<container>...]
   kastenwesen check-for-updates [<container>...]
-  kastenwesen shell <container>
+  kastenwesen shell [--new-instance] <container>
   kastenwesen log [-f] <container>
   kastenwesen cleanup [--simulate] [--min-age=<days>]
 
@@ -41,7 +41,7 @@ Actions explained:
   stop: stop a container or stop all containers. Also stops dependent containers (e.g. web application is stopped if you stop its database container)
   start: inverse of stop. Due to the way how docker links work, some additional containers will automatically be restarted to fix links.
   restart: stop and start again
-  shell: exec a shell inside the running container
+  shell: exec a shell inside the running container, or inside a separate instance of this image if using --new-instance
   cleanup: carefully remove old containers and images that are no longer used
 
 If the containers argument is not given, the command refers to all containers in the config.
@@ -445,9 +445,26 @@ class DockerContainer(AbstractContainer):
         else:
             return False
 
-    def interactive_shell(self):
-        print("Starting a shell inside the running instance.")
-        cmd = "docker exec -it {container} bash".format(container=self.running_container_name())
+    def interactive_shell(self, new_instance=False):
+        """
+        start a shell inside the running instance using ``docker exec``
+
+        :param bool new_instance:
+            start the shell in a separate container instance
+            using ``docker run``,
+            do not start it in the already running container.
+        """
+
+        if new_instance:
+            # docker run ... to launch new instance
+            print("Starting a new container instance with an interactive shell:")
+            cmd = "docker run -it {container} bash".format(container=self.name)
+        else:
+            # docker exec ... in running instance
+            print("Starting a shell inside the running instance.")
+            if not self.is_running():
+                print_fatal("Container {} is not running. Use --new-instance to start a new container instance especially for the shell.")
+            cmd = "docker exec -it {container} bash".format(container=self.running_container_name())
         exec_verbose(cmd)
 
 
@@ -721,7 +738,7 @@ def main():
     elif arguments["stop"]:
         stop_many(given_containers)
     elif arguments["shell"]:
-        given_containers[0].interactive_shell()
+        given_containers[0].interactive_shell(arguments["--new-instance"])
     elif arguments["log"]:
         given_containers[0].logs(follow=arguments["-f"])
     elif arguments["cleanup"]:
