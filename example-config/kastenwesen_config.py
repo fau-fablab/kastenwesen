@@ -36,7 +36,7 @@ test1.add_port(host_port=1231, container_port=1234, test=False)
 # some arbitrary shell tests
 test1.add_test(DockerShellTest("ls -al"))
 # this test should fail with returncode 1
-test1.add_test(DockerShellTest("false"))
+# test1.add_test(DockerShellTest("false"))
 config_containers.append(test1)
 
 #########################################
