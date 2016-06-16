@@ -125,9 +125,10 @@ def get_selinux_status():
 
 
 class AbstractTest(object):
-    def run(self):
+    def run(self, container_instance):
         """ run the test. May print error messages if something is not right.
 
+        :param container_instance: instance of the current container
         :rtype: bool
         :return: True if test successful, False otherwise.
         """
@@ -139,7 +140,7 @@ class URLTest(AbstractTest):
         self.url = url
         self.verify_ssl_cert = verify_ssl_cert
 
-    def run(self):
+    def run(self, container_instance):
         try:
             t = requests.get(self.url, verify=self.verify_ssl_cert)
             t.raise_for_status()
@@ -155,7 +156,7 @@ class TCPPortTest(AbstractTest):
         self.host = host or 'localhost'
         self.expect_data = expect_data
 
-    def run(self):
+    def run(self, container_instance):
         try:
             sock = socket.create_connection((self.host, self.port), timeout=2)
         except IOError:
@@ -173,6 +174,30 @@ class TCPPortTest(AbstractTest):
             logging.error("No response from TCP host {} port {} - server dead "
                          "or this protocol doesn't answer to a simple 'hello' "
                          "packet.".format(self.host, self.port))
+            return False
+        return True
+
+class DockerShellTest(AbstractTest):
+    """runs a shell command with docker exec"""
+    def __init__(self, shell_cmd):
+        self.shell_cmd = shell_cmd
+
+    def run(self, container_instance):
+        """
+
+        :type container_instance: DockerContainer
+        :return: status
+        """
+        try:
+            subprocess.check_call("docker exec -it {container} {command} 1>/dev/null".format(
+                container=container_instance.running_container_name(),
+                command=self.shell_cmd
+            ), shell=True)
+        except subprocess.CalledProcessError as e:
+            logging.warn("Test '{command}' of type 'shell' failed with returncode {returncode}".format(
+                command=self.shell_cmd,
+                returncode=e.returncode
+            ))
             return False
         return True
 
@@ -206,7 +231,7 @@ class AbstractContainer(object):
             logging.warn("no tests defined for container {}, a build error might go unnoticed!".format(self.name))
         success = True
         for test in self.tests:
-            success = test.run() and success
+            success = test.run(self) and success
 
         # check that the container is running
         if sleep_before:

@@ -33,6 +33,10 @@ config_containers.append(web)
 test1 = DockerContainer(name="test1", path="./test1/")
 # this server doesn't answer with any data, so disable the test for the port
 test1.add_port(host_port=1231, container_port=1234, test=False)
+# some arbitrary shell tests
+test1.add_test(DockerShellTest("ls -al"))
+# this test should fail with returncode 1
+test1.add_test(DockerShellTest("false"))
 config_containers.append(test1)
 
 #########################################
