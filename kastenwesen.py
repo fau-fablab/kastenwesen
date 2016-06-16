@@ -177,6 +177,7 @@ class TCPPortTest(AbstractTest):
             return False
         return True
 
+
 class DockerShellTest(AbstractTest):
     """runs a shell command with docker exec"""
     def __init__(self, shell_cmd):
@@ -272,6 +273,7 @@ class AbstractContainer(object):
         """
         return False
 
+
 class CustomBuildscriptTask(AbstractContainer):
     def __init__(self, name, build_command):
         """
@@ -286,12 +288,14 @@ class CustomBuildscriptTask(AbstractContainer):
         # TODO handle ignore_cache
         exec_verbose("IGNORE_CACHE={} ".format(int(ignore_cache)) + self.build_command)
 
+
 class MonitoringTask(AbstractContainer):
     def __init__(self, name):
         """
         pseudo-'container' that only runs tests, nothing else. Can be used for monitoring external services from kastenwesen status.
         """
         AbstractContainer.__init__(self, name, only_build=True)
+
 
 class DockerContainer(AbstractContainer):
     def __init__(self, name, path, docker_options="", sleep_before_test=0.5, only_build=False, alias_tags=None):
@@ -421,11 +425,10 @@ class DockerContainer(AbstractContainer):
         exec_verbose(cmdline)
         self._set_running_container_name(new_name)
 
-
     def logs(self, follow=False):
-        MAX_LINES=1000
+        MAX_LINES = 1000
         if not follow:
-            out=api_client.logs(container=self.running_container_name(), stream=False, tail=MAX_LINES)
+            out = api_client.logs(container=self.running_container_name(), stream=False, tail=MAX_LINES)
             lines = sum([1 for char in out if char == '\n'])
             if lines > MAX_LINES - 3:
                 print_warning("Output is truncated, printing only the last {} lines".format(MAX_LINES))
@@ -630,15 +633,15 @@ def cleanup_containers(min_age_days=0, simulate=False):
             date_finished = None
         else:
             date_finished = dateutil.parser.parse(date_finished)
-            date_finished = date_finished.replace(tzinfo=None) # the returned timestamp is always UTC
+            date_finished = date_finished.replace(tzinfo=None)  # the returned timestamp is always UTC
         now = datetime.datetime.utcnow()
         if date_finished:
-            assert date_finished > datetime.datetime(2002,01,01)
-            if date_finished  > now - datetime.timedelta(days=1)*min_age_days:
+            assert date_finished > datetime.datetime(2002, 01, 01)
+            if date_finished > now - datetime.timedelta(days=1)*min_age_days:
                 # too young
                 continue
             date_created = datetime.datetime.utcfromtimestamp(container['Created'])
-            date_created = date_created.replace(tzinfo=None) # the result is always UTC
+            date_created = date_created.replace(tzinfo=None)  # the result is always UTC
             assert date_created <= date_finished, "Container creation time is after the time it finished: container='{}', parsed creation time={} --  state='{}'  parsed finishing time={}".format(container, datetime.datetime.fromtimestamp(container['Created']), api_client.inspect_container(container['Id'])['State'], date_finished)
         if container['Id'] in config_container_ids:
             print_warning("Not removing stopped container {} because it is the last known instance".format(container['Names']))
