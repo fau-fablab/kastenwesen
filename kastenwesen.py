@@ -179,23 +179,33 @@ class TCPPortTest(AbstractTest):
 
 
 class DockerShellTest(AbstractTest):
-    """runs a shell command with docker exec"""
     def __init__(self, shell_cmd):
+        """
+        Test which runs a shell command with ``docker exec`` and tests for return value equal to zero.
+        Only supported for docker containers.
+
+        :param str shell_cmd:
+            shell command for testing, e.g.
+            ``hello | grep -q world``
+            Will be interpreted by ``bash`` on the container.
+        """
+        assert isinstance(shell_cmd, str)
         self.shell_cmd = shell_cmd
 
     def run(self, container_instance):
         """
+        run the test. See AbstractTest.run()
 
         :type container_instance: DockerContainer
         :return: status
         """
+        assert isinstance(container_instance, DockerContainer)
+        cmd = ["docker", "exec", "-it", container_instance.running_container_name(),
+               'bash', '-c', self.shell_cmd]
         try:
-            subprocess.check_call("docker exec -it {container} {command} 1>/dev/null".format(
-                container=container_instance.running_container_name(),
-                command=self.shell_cmd
-            ), shell=True)
+            subprocess.check_call(cmd, stdout=None)
         except subprocess.CalledProcessError as e:
-            logging.warn("Test '{command}' of type 'shell' failed with returncode {returncode}".format(
+            logging.warn("Test with shell command '{command}' failed with returncode {returncode}".format(
                 command=self.shell_cmd,
                 returncode=e.returncode
             ))
