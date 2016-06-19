@@ -200,10 +200,12 @@ class DockerShellTest(AbstractTest):
         :return: status
         """
         assert isinstance(container_instance, DockerContainer)
+        if not container_instance.is_running():
+            return False
         cmd = ["docker", "exec", "-it", container_instance.running_container_name(),
                'bash', '-c', self.shell_cmd]
         try:
-            subprocess.check_call(cmd, stdout=None)
+            subprocess.check_call(cmd)
         except subprocess.CalledProcessError as e:
             logging.warn("Test with shell command '{command}' failed with returncode {returncode}".format(
                 command=self.shell_cmd,
