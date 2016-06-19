@@ -189,7 +189,7 @@ class DockerShellTest(AbstractTest):
             ``hello | grep -q world``
             Will be interpreted by ``bash`` on the container.
         """
-        assert isinstance(shell_cmd, str)
+        assert isinstance(shell_cmd, basestring)
         self.shell_cmd = shell_cmd
 
     def run(self, container_instance):
