@@ -6,3 +6,7 @@
 
 # Vagrant
 .vagrant
+
+# IDE and OS
+.directory
+.idea/

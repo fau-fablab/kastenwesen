@@ -125,9 +125,10 @@ def get_selinux_status():
 
 
 class AbstractTest(object):
-    def run(self):
+    def run(self, container_instance):
         """ run the test. May print error messages if something is not right.
 
+        :param container_instance: instance of the current container
         :rtype: bool
         :return: True if test successful, False otherwise.
         """
@@ -139,7 +140,7 @@ class URLTest(AbstractTest):
         self.url = url
         self.verify_ssl_cert = verify_ssl_cert
 
-    def run(self):
+    def run(self, container_instance):
         try:
             t = requests.get(self.url, verify=self.verify_ssl_cert)
             t.raise_for_status()
@@ -155,7 +156,7 @@ class TCPPortTest(AbstractTest):
         self.host = host or 'localhost'
         self.expect_data = expect_data
 
-    def run(self):
+    def run(self, container_instance):
         try:
             sock = socket.create_connection((self.host, self.port), timeout=2)
         except IOError:
@@ -173,6 +174,43 @@ class TCPPortTest(AbstractTest):
             logging.error("No response from TCP host {} port {} - server dead "
                          "or this protocol doesn't answer to a simple 'hello' "
                          "packet.".format(self.host, self.port))
+            return False
+        return True
+
+
+class DockerShellTest(AbstractTest):
+    def __init__(self, shell_cmd):
+        """
+        Test which runs a shell command with ``docker exec`` and tests for return value equal to zero.
+        Only supported for docker containers.
+
+        :param str shell_cmd:
+            shell command for testing, e.g.
+            ``hello | grep -q world``
+            Will be interpreted by ``bash`` on the container.
+        """
+        assert isinstance(shell_cmd, basestring)
+        self.shell_cmd = shell_cmd
+
+    def run(self, container_instance):
+        """
+        run the test. See AbstractTest.run()
+
+        :type container_instance: DockerContainer
+        :return: status
+        """
+        assert isinstance(container_instance, DockerContainer)
+        if not container_instance.is_running():
+            return False
+        cmd = ["docker", "exec", "-it", container_instance.running_container_name(),
+               'bash', '-c', self.shell_cmd]
+        try:
+            subprocess.check_call(cmd)
+        except subprocess.CalledProcessError as e:
+            logging.warn("Test with shell command '{command}' failed with returncode {returncode}".format(
+                command=self.shell_cmd,
+                returncode=e.returncode
+            ))
             return False
         return True
 
@@ -206,7 +244,7 @@ class AbstractContainer(object):
             logging.warn("no tests defined for container {}, a build error might go unnoticed!".format(self.name))
         success = True
         for test in self.tests:
-            success = test.run() and success
+            success = test.run(self) and success
 
         # check that the container is running
         if sleep_before:
@@ -247,6 +285,7 @@ class AbstractContainer(object):
         """
         return False
 
+
 class CustomBuildscriptTask(AbstractContainer):
     def __init__(self, name, build_command):
         """
@@ -261,12 +300,14 @@ class CustomBuildscriptTask(AbstractContainer):
         # TODO handle ignore_cache
         exec_verbose("IGNORE_CACHE={} ".format(int(ignore_cache)) + self.build_command)
 
+
 class MonitoringTask(AbstractContainer):
     def __init__(self, name):
         """
         pseudo-'container' that only runs tests, nothing else. Can be used for monitoring external services from kastenwesen status.
         """
         AbstractContainer.__init__(self, name, only_build=True)
+
 
 class DockerContainer(AbstractContainer):
     def __init__(self, name, path, docker_options="", sleep_before_test=0.5, only_build=False, alias_tags=None):
@@ -396,11 +437,10 @@ class DockerContainer(AbstractContainer):
         exec_verbose(cmdline)
         self._set_running_container_name(new_name)
 
-
     def logs(self, follow=False):
-        MAX_LINES=1000
+        MAX_LINES = 1000
         if not follow:
-            out=api_client.logs(container=self.running_container_name(), stream=False, tail=MAX_LINES)
+            out = api_client.logs(container=self.running_container_name(), stream=False, tail=MAX_LINES)
             lines = sum([1 for char in out if char == '\n'])
             if lines > MAX_LINES - 3:
                 print_warning("Output is truncated, printing only the last {} lines".format(MAX_LINES))
@@ -605,15 +645,15 @@ def cleanup_containers(min_age_days=0, simulate=False):
             date_finished = None
         else:
             date_finished = dateutil.parser.parse(date_finished)
-            date_finished = date_finished.replace(tzinfo=None) # the returned timestamp is always UTC
+            date_finished = date_finished.replace(tzinfo=None)  # the returned timestamp is always UTC
         now = datetime.datetime.utcnow()
         if date_finished:
-            assert date_finished > datetime.datetime(2002,01,01)
-            if date_finished  > now - datetime.timedelta(days=1)*min_age_days:
+            assert date_finished > datetime.datetime(2002, 01, 01)
+            if date_finished > now - datetime.timedelta(days=1)*min_age_days:
                 # too young
                 continue
             date_created = datetime.datetime.utcfromtimestamp(container['Created'])
-            date_created = date_created.replace(tzinfo=None) # the result is always UTC
+            date_created = date_created.replace(tzinfo=None)  # the result is always UTC
             assert date_created <= date_finished, "Container creation time is after the time it finished: container='{}', parsed creation time={} --  state='{}'  parsed finishing time={}".format(container, datetime.datetime.fromtimestamp(container['Created']), api_client.inspect_container(container['Id'])['State'], date_finished)
         if container['Id'] in config_container_ids:
             print_warning("Not removing stopped container {} because it is the last known instance".format(container['Names']))
