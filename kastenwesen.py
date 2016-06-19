@@ -202,7 +202,7 @@ class DockerShellTest(AbstractTest):
         assert isinstance(container_instance, DockerContainer)
         if not container_instance.is_running():
             return False
-        cmd = ["docker", "exec", "-it", container_instance.running_container_name(),
+        cmd = ["docker", "exec", container_instance.running_container_name(),
                'bash', '-c', self.shell_cmd]
         try:
             subprocess.check_call(cmd)
