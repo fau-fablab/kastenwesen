@@ -740,7 +740,9 @@ def main():
     # an image may only depend on images *before* it in the list
     # linking is also only allowed to containers *before* it in the list.
 
-    if not arguments["status"] or arguments["check-for-updates"]:
+    read_only_args = ["status", "check-for-updates", "log"]
+    lock_needed = not sum([arguments[key] for key in read_only_args])
+    if lock_needed:
         # Lock against concurrent use, except for readonly operations
         try:
             lockfile = open("/var/lock/kastenwesen.lock", "w")
