@@ -2,9 +2,15 @@
 import os
 import subprocess
 import logging
+import time
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
 
+travis = False
+travis_sleeptime = 20  # seconds
+if os.environ.get("TRAVIS"):
+    print("\nOh hi Travis, how are you? I will go slowly on your machines in order to prevent failing tests.\n")
+    travis = True
 
 def assert_run_okay(cmd):
     kastenwesen_dir = script_dir + "/../"
@@ -29,4 +35,6 @@ assert_run_okay("status")
 assert_run_okay("stop")
 assert_run_fail("status")
 assert_run_okay("restart")
+if travis:
+    time.sleep(travis_sleeptime)
 assert_run_okay("status")

@@ -3,6 +3,12 @@
 
 config_containers = []
 
+travis = False
+travis_sleeptime = 15  # seconds
+if os.environ.get("TRAVIS"):
+    print("\nHey Travis, nice to see you. I will progress slowly for you, so my tests won't fail.\n")
+    travis = True
+
 #########################################
 # my_linux_base                         #
 # ===================================== #
@@ -45,7 +51,14 @@ config_containers.append(test1)
 # A testserver listening on port 1232   #
 # only listenining on localhost         #
 #########################################
-test2 = DockerContainer(name="test2", path="./test2/")
+if travis:
+    test2 = DockerContainer(
+        name="test2",
+        path="./test2/",
+        sleep_before_test=travis_sleeptime
+    )
+else:
+    test2 = DockerContainer(name="test2", path="./test2/")
 test2.add_link(test1),
 test2.add_port(host_addr="127.0.0.1", host_port=1232, container_port=1234)
 config_containers.append(test2)
@@ -57,8 +70,17 @@ config_containers.append(test2)
 # port of test2 to 1337                 #
 # (like a reverse proxy)                #
 #########################################
-portforwarder_to_test2 = DockerContainer(name="portforwarder-to-test2",
-                                         path="./portforwarder-to-test2/")
+if travis:
+    portforwarder_to_test2 = DockerContainer(
+        name="portforwarder-to-test2",
+        path="./portforwarder-to-test2/",
+        sleep_before_test=travis_sleeptime
+    )
+else:
+    portforwarder_to_test2 = DockerContainer(
+        name="portforwarder-to-test2",
+        path="./portforwarder-to-test2/"
+    )
 portforwarder_to_test2.add_port(host_port=1337, container_port=1234)
 portforwarder_to_test2.add_link(test2)
 
