@@ -477,7 +477,11 @@ class DockerContainer(AbstractContainer):
 
     def needs_package_updates(self):
         kastenwesen_path = os.path.dirname(os.path.realpath(__file__))
-        cmd = "docker run --rm --user=root -v {kastenwesen_path}/helper/:/usr/local/kastenwesen_tmp/:ro {image} /usr/local/kastenwesen_tmp/check_for_updates.py".format(image=self.image_name, kastenwesen_path=kastenwesen_path)
+        cmd = "docker run --rm --user=root -v {kastenwesen_path}/helper/:/usr/local/kastenwesen_tmp/:ro{vol_opts} {image} /usr/local/kastenwesen_tmp/python-wrapper.sh /usr/local/kastenwesen_tmp/check_for_updates.py 2>/dev/null".format(
+            vol_opts=',Z' if get_selinux_status() == 'enforcing' else '',
+            image=self.image_name,
+            kastenwesen_path=kastenwesen_path,
+        )
         updates = exec_verbose(cmd, return_output=True)
         if updates:
             print_warning("Container {} has outdated packages: {}".format(self.name, updates))
