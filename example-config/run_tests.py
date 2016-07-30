@@ -34,7 +34,11 @@ assert_run_okay("rebuild")
 assert_run_okay("status")
 assert_run_okay("stop")
 assert_run_fail("status")
-assert_run_okay("restart")
+try:
+    assert_run_okay("restart")
+except Exception as e:
+    subprocess.check_call("pstree")
+    raise e
 subprocess.check_call("pstree")
 if travis:
     print("fuu travis")

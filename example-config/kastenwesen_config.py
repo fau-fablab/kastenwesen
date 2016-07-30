@@ -8,6 +8,7 @@ travis_sleeptime = 15  # seconds
 if os.environ.get("TRAVIS"):
     print("\nHey Travis, nice to see you. I will progress slowly for you, so my tests won't fail.\n")
     travis = True
+    STARTUP_GRACETIME = 20
 
 #########################################
 # my_linux_base                         #
