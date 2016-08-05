@@ -72,6 +72,8 @@ requests_log.setLevel(logging.WARNING)
 # time to wait between starting containers and checking the status
 STARTUP_GRACETIME = 2
 
+SELINUX_STATUS = None
+
 # workaround to always flush the output buffer
 real_print = print
 
@@ -114,14 +116,18 @@ def print_bold(text):
 
 def get_selinux_status():
     """:return: (disabled|permissive|enforcing)"""
-    try:
-        return subprocess.check_output(
-            'getenforce 2>/dev/null || echo "disabled"',
-            shell=True).strip().lower()
-    except subprocess.CalledProcessError as e:
-        print_warning("Error while running 'getenforce' to get current SELinux status")
-        print(e)
-        return 'disabled'
+    global SELINUX_STATUS
+    if SELINUX_STATUS:
+        return SELINUX_STATUS
+    else:
+        try:
+            return subprocess.check_output(
+                'getenforce 2>/dev/null || echo "disabled"',
+                shell=True).strip().lower()
+        except subprocess.CalledProcessError as e:
+            print_warning("Error while running 'getenforce' to get current SELinux status")
+            print(e)
+            return 'disabled'
 
 
 class AbstractTest(object):
@@ -765,6 +771,7 @@ def main():
 
     if arguments["rebuild"]:
         rebuild_many(given_containers, ignore_cache=bool(arguments["--no-cache"]))
+        time.sleep(STARTUP_GRACETIME)
         print_status_and_exit(given_containers)
     elif arguments["restart"]:
         restart_many(given_containers)
