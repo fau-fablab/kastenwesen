@@ -771,6 +771,7 @@ def main():
 
     if arguments["rebuild"]:
         rebuild_many(given_containers, ignore_cache=bool(arguments["--no-cache"]))
+        time.sleep(STARTUP_GRACETIME)
         print_status_and_exit(given_containers)
     elif arguments["restart"]:
         restart_many(given_containers)
