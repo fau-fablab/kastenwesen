@@ -72,6 +72,9 @@ requests_log.setLevel(logging.WARNING)
 # time to wait between starting containers and checking the status
 STARTUP_GRACETIME = 2
 
+# default TCP timeout for tests
+TCP_TIMEOUT = 2
+
 SELINUX_STATUS = None
 
 # workaround to always flush the output buffer
@@ -164,7 +167,7 @@ class TCPPortTest(AbstractTest):
 
     def run(self, container_instance):
         try:
-            sock = socket.create_connection((self.host, self.port), timeout=2)
+            sock = socket.create_connection((self.host, self.port), timeout=TCP_TIMEOUT)
         except IOError:
             logging.error("Connection failed for TCP host {} port {}".format(self.host, self.port))
             return False
