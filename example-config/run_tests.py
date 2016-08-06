@@ -19,6 +19,8 @@ def diagnostics():
     subprocess.check_call("pstree")
     subprocess.check_call("docker ps", shell=True)
     subprocess.check_call("date")
+    if travis:
+        time.sleep(STARTUP_GRACETIME)
 
 
 def assert_run_okay(cmd):
