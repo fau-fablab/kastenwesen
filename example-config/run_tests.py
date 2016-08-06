@@ -7,10 +7,10 @@ import time
 script_dir = os.path.dirname(os.path.realpath(__file__))
 
 travis = False
-travis_sleeptime = 20  # seconds
 if os.environ.get("TRAVIS"):
     print("\nOh hi Travis, how are you? I will go slowly on your machines in order to prevent failing tests.\n")
     travis = True
+    STARTUP_GRACETIME = 20
 
 
 def diagnostics():
