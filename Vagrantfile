@@ -68,4 +68,10 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   config.vm.provision "shell" do |foobar|
     foobar.inline = "ln -fs /home/vagrant/share/example-config /etc/kastenwesen"
   end
+  config.vm.provision "shell" do |foobar|
+    foobar.inline = "ln -fs /home/vagrant/share/example-config /home/vagrant/kastenwesen-config"
+  end
+  config.vm.provision "shell" do |foobar|
+    foobar.inline = "ln -fs /home/vagrant/share/kastenwesen.py /usr/bin/kastenwesen"
+  end
 end
