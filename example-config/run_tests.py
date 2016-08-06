@@ -6,12 +6,11 @@ import time
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
 
-travis = False
+EXTRA_SLEEP = 0
 if os.environ.get("TRAVIS"):
     print("\nOh hi Travis, how are you? I will go slowly on your machines in order to prevent failing tests.\n")
     travis = True
-    STARTUP_GRACETIME = 20
-    TCP_TIMEOUT = 20
+    EXTRA_SLEEP = 5
 
 
 def diagnostics():
@@ -19,8 +18,7 @@ def diagnostics():
     subprocess.check_call("pstree")
     subprocess.check_call("docker ps", shell=True)
     subprocess.check_call("date")
-    if travis:
-        time.sleep(STARTUP_GRACETIME)
+    time.sleep(EXTRA_SLEEP)
 
 
 def assert_run_okay(cmd):

@@ -7,7 +7,8 @@ travis = False
 if os.environ.get("TRAVIS"):
     print("\nHey Travis, nice to see you. I will progress slowly for you, so my tests won't fail.\n")
     travis = True
-    STARTUP_GRACETIME = 5
+    STARTUP_GRACETIME = 5    
+    TCP_TIMEOUT = 20
 
 #########################################
 # my_linux_base                         #
@@ -59,18 +60,35 @@ test2.add_link(test1),
 test2.add_port(host_addr="127.0.0.1", host_port=1232, container_port=1234)
 config_containers.append(test2)
 
+
+#########################################
+# portforwarder_to_test2                #
+# ===================================== #
+# A portforwarder that forwards the     #
+# port of test2 to port 1337            #
+#########################################
+portforwarder_to_test2 = DockerContainer(
+    name="portforwarder-to-test2",
+    path="./portforwarder-to-test2/"
+)
+portforwarder_to_test2.add_port(host_port=1337, container_port=1234)
+portforwarder_to_test2.add_link(web)
+
+config_containers.append(portforwarder_to_test2)
+
+
 #########################################
 # portforwarder_to_webserver            #
 # ===================================== #
 # A portforwarder that forwards the     #
-# port 80 of webserver to 1337          #
+# port 80 of webserver to 8080          #
 # (reverse proxy on the TCP layer)      #
 #########################################
-portforwarder_to_test1 = DockerContainer(
+portforwarder_to_web = DockerContainer(
     name="portforwarder-to-webserver",
     path="./portforwarder-to-webserver/"
 )
-portforwarder_to_test1.add_port(host_port=1337, container_port=1234)
-portforwarder_to_test1.add_link(web)
+portforwarder_to_web.add_port(host_port=8080, container_port=1234)
+portforwarder_to_web.add_link(web)
 
-config_containers.append(portforwarder_to_test1)
+config_containers.append(portforwarder_to_web)
