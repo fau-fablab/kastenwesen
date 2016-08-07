@@ -469,6 +469,10 @@ class DockerContainer(AbstractContainer):
         for container in running_containers:
             if container['Image'] == self.image_name:
                 if container['Id'] not in config_container_ids:
+                    if container['Labels'].get('de.fau.fablab.kastenwesen.temporary') == "True":
+                        # temporary instance started by `check-for-updates` or `shell --new-instance`
+                        # do not raise a warning for this.
+                        continue
                     raise Exception("The container '{}', not managed by kastenwesen.py, is currently running from the same image '{}'. I am assuming this is not what you want. Please stop it yourself and restart it via kastenwesen. See the output of 'docker ps' for more info.".format(container['Id'], self.image_name))
 
     def is_running(self):
@@ -483,7 +487,16 @@ class DockerContainer(AbstractContainer):
 
     def needs_package_updates(self):
         kastenwesen_path = os.path.dirname(os.path.realpath(__file__))
-        cmd = "docker run --rm --user=root -v {kastenwesen_path}/helper/:/usr/local/kastenwesen_tmp/:ro {image} /usr/local/kastenwesen_tmp/check_for_updates.py".format(image=self.image_name, kastenwesen_path=kastenwesen_path)
+        # run check_for_updates.py in a new container instance.
+
+        # the temporary label is set so that check_for_unmanaged_containers()
+        # does not complain about this "unmanaged" instance
+        cmd = "docker run --label de.fau.fablab.kastenwesen.temporary=True" \
+              "--rm --user=root" \
+              "-v {kastenwesen_path}/helper/:/usr/local/kastenwesen_tmp/:ro" \
+              "{image}" \
+              "/usr/local/kastenwesen_tmp/check_for_updates.py" \
+              .format(image=self.image_name, kastenwesen_path=kastenwesen_path)
         updates = exec_verbose(cmd, return_output=True)
         if updates:
             print_warning("Container {} has outdated packages: {}".format(self.name, updates))
@@ -504,7 +517,9 @@ class DockerContainer(AbstractContainer):
         if new_instance:
             # docker run ... to launch new instance
             print("Starting a new container instance with an interactive shell:")
-            cmd = "docker run -it {container} bash".format(container=self.name)
+            # the temporary label is set so that check_for_unmanaged_containers()
+            # does not complain about this "unmanaged" instance
+            cmd = "docker run --label de.fau.fablab.kastenwesen.temporary=True -it {container} bash".format(container=self.name)
         else:
             # docker exec ... in running instance
             print("Starting a shell inside the running instance.")
