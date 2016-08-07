@@ -491,12 +491,16 @@ class DockerContainer(AbstractContainer):
 
         # the temporary label is set so that check_for_unmanaged_containers()
         # does not complain about this "unmanaged" instance
-        cmd = "docker run --label de.fau.fablab.kastenwesen.temporary=True" \
+        cmd = "docker run --label de.fau.fablab.kastenwesen.temporary=True " \
               "--rm --user=root" \
-              "-v {kastenwesen_path}/helper/:/usr/local/kastenwesen_tmp/:ro" \
+              "-v {kastenwesen_path}/helper/:/usr/local/kastenwesen_tmp/:ro{vol_opts} " \
               "{image}" \
               "/usr/local/kastenwesen_tmp/check_for_updates.py" \
-              .format(image=self.image_name, kastenwesen_path=kastenwesen_path)
+              .format(
+              image=self.image_name,
+              vol_opts=',Z' if get_selinux_status() == 'enforcing' else '',
+              kastenwesen_path=kastenwesen_path
+              )
         updates = exec_verbose(cmd, return_output=True)
         if updates:
             print_warning("Container {} has outdated packages: {}".format(self.name, updates))
