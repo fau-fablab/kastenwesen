@@ -495,9 +495,9 @@ class DockerContainer(AbstractContainer):
         # the temporary label is set so that check_for_unmanaged_containers()
         # does not complain about this "unmanaged" instance
         cmd = "docker run --label de.fau.fablab.kastenwesen.temporary=True " \
-              "--rm --user=root" \
+              "--rm --user=root " \
               "-v {kastenwesen_path}/helper/:/usr/local/kastenwesen_tmp/:ro{vol_opts} " \
-              "{image}" \
+              "{image} " \
               "/usr/local/kastenwesen_tmp/check_for_updates.py" \
               .format(
               image=self.image_name,
