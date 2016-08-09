@@ -27,7 +27,7 @@ Usage:
   kastenwesen [help]
   kastenwesen (status|start|restart|stop) [<container>...]
   kastenwesen rebuild [--no-cache] [<container>...]
-  kastenwesen check-for-updates [<container>...]
+  kastenwesen check-for-updates [--auto-upgrade] [<container>...]
   kastenwesen shell [--new-instance] <container>
   kastenwesen log [-f] <container>
   kastenwesen cleanup [--simulate] [--min-age=<days>]
@@ -537,10 +537,16 @@ class DockerContainer(AbstractContainer):
 
 
 def rebuild_many(containers, ignore_cache=False):
+    """ rebuild given containers
+
+    :param list[AbstractContainer] containers: containers to rebuild
+    :param bool ignore_cache: use ``--no-cache`` in docker build to ensure that external dependencies are fresh
+    :return list[AbstractContainer]: all containers that were affected by the rebuild. Also contains additional dependent containers that had to be restarted.
+    """
     for container in containers:
         container.rebuild(ignore_cache)
     # TODO dummy test before restarting real system
-    restart_many(containers)
+    return restart_many(containers)
 
 
 def ordered_by_dependency(containers, add_dependencies=False, add_reverse_dependencies=False):
@@ -599,6 +605,12 @@ def ordered_by_dependency(containers, add_dependencies=False, add_reverse_depend
 
 
 def restart_many(requested_containers):
+    """
+    Restart given containers, and if necessary also their dependencies and reverse dependencies.
+
+    :param list[AbstractContainer] containers: containers to restart
+    :return list[AbstractContainer]: all containers that were affected. Also contains additional dependent containers that had to be (re)started.
+    """
     # also restart the containers that will be broken by this:
     stop_containers = stop_many(requested_containers, message_restart=True)
 
@@ -613,6 +625,7 @@ def restart_many(requested_containers):
             continue
         if container in stop_containers or not container.is_running():
             container.start()
+    return start_containers
 
 
 def stop_many(requested_containers, message_restart=False):
@@ -768,8 +781,10 @@ def main():
     # an image may only depend on images *before* it in the list
     # linking is also only allowed to containers *before* it in the list.
 
-    read_only_args = ["status", "check-for-updates", "log"]
+    read_only_args = ["status", "log"]
     lock_needed = not sum([arguments[key] for key in read_only_args])
+    if arguments["check-for-updates"] and arguments["--auto-upgrade"]:
+        lock_needed = True
     if lock_needed:
         # Lock against concurrent use, except for readonly operations
         try:
@@ -792,9 +807,9 @@ def main():
             raise Exception("Unknown container name(s) given on commandline")
 
     if arguments["rebuild"]:
-        rebuild_many(given_containers, ignore_cache=bool(arguments["--no-cache"]))
+        affected_containers = rebuild_many(given_containers, ignore_cache=bool(arguments["--no-cache"]))
         time.sleep(STARTUP_GRACETIME)
-        print_status_and_exit(given_containers)
+        print_status_and_exit(affected_containers)
     elif arguments["restart"]:
         restart_many(given_containers)
         time.sleep(STARTUP_GRACETIME)
@@ -827,15 +842,22 @@ def main():
                        simulate=arguments["--simulate"],
                        simulated_deleted_containers=simulated_deleted_containers)
     elif arguments["check-for-updates"]:
+        print_bold("Checking containers for updates...")
         containers_with_updates = need_package_updates(given_containers)
-        if containers_with_updates:
-            containers_str = " ".join([cont.name for cont in containers_with_updates])
-            print_warning("Some containers have outdated packages: {}".format(containers_str))
-            print_warning("Rebuild them with: kastenwesen rebuild --no-cache {}".format(containers_str))
-            sys.exit(1)
-        else:
+        if not containers_with_updates:
             print_success("Packages are up to date.")
             sys.exit(0)
+        containers_str = " ".join([cont.name for cont in containers_with_updates])
+        if not arguments["--auto-upgrade"]:
+            # only print output
+            print_warning("Some containers have outdated packages: {}".format(containers_str))
+            print_warning("Rebuild them with: kastenwesen check-for-updates --auto-upgrade".format(containers_str))
+            sys.exit(1)
+        # auto upgrade:
+        print_bold("\n\nUpdating containers with outdated packages: {}\n".format(containers_str))
+        time.sleep(2) # some time to cancel
+        affected_containers = rebuild_many(given_containers, ignore_cache=False)
+        print_status_and_exit(affected_containers)
     else:
         print(__doc__)
 
