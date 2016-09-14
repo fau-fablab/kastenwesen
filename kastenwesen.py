@@ -856,7 +856,7 @@ def main():
         # auto upgrade:
         print_bold("\n\nUpdating containers with outdated packages: {}\n".format(containers_str))
         time.sleep(2) # some time to cancel
-        affected_containers = rebuild_many(given_containers, ignore_cache=False)
+        affected_containers = rebuild_many(given_containers, ignore_cache=True)
         print_status_and_exit(affected_containers)
     else:
         print(__doc__)
