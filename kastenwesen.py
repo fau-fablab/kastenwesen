@@ -851,12 +851,13 @@ def main():
         if not arguments["--auto-upgrade"]:
             # only print output
             print_warning("Some containers have outdated packages: {}".format(containers_str))
-            print_warning("Rebuild them with: kastenwesen check-for-updates --auto-upgrade".format(containers_str))
+            print_warning("Rebuild them with: kastenwesen check-for-updates --auto-upgrade\n"
+                          "or: kastenwesen rebuild --no-cache {0}".format(containers_str))
             sys.exit(1)
         # auto upgrade:
         print_bold("\n\nUpdating containers with outdated packages: {}\n".format(containers_str))
         time.sleep(2) # some time to cancel
-        affected_containers = rebuild_many(given_containers, ignore_cache=True)
+        affected_containers = rebuild_many(containers_with_updates, ignore_cache=True)
         print_status_and_exit(affected_containers)
     else:
         print(__doc__)
