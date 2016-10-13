@@ -327,7 +327,7 @@ class DockerContainer(AbstractContainer):
         :param docker_options: commandline options to 'docker run'
         """
         AbstractContainer.__init__(self, name, sleep_before_test, only_build)
-        self.image_name = '%s:%s' % (self.name, 'latest')
+        self.image_name = self.name + ':latest'
         self.path = path
         self.docker_options = docker_options
         self.links = []
