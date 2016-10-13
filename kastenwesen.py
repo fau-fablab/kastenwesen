@@ -77,6 +77,8 @@ TCP_TIMEOUT = 2
 
 SELINUX_STATUS = None
 
+NAMESPACE = ''  # Namespace for containers and images. '' or '$namespace/'
+
 # workaround to always flush the output buffer
 real_print = print
 
@@ -226,7 +228,7 @@ class DockerShellTest(AbstractTest):
 
 class AbstractContainer(object):
     def __init__(self, name, sleep_before_test=0.5, only_build=False):
-        self.name = name
+        self.name = NAMESPACE + name
         self.tests = []
         self.links = []
         self.sleep_before_test = sleep_before_test
@@ -325,7 +327,7 @@ class DockerContainer(AbstractContainer):
         :param docker_options: commandline options to 'docker run'
         """
         AbstractContainer.__init__(self, name, sleep_before_test, only_build)
-        self.image_name = self.name + ':latest'
+        self.image_name = '%s:%s' % (self.name, 'latest')
         self.path = path
         self.docker_options = docker_options
         self.links = []
@@ -374,6 +376,10 @@ class DockerContainer(AbstractContainer):
     def __str__(self):
         return self.name
 
+    def name_without_namespace(self):
+        """Return the image name without namespace."""
+        return self.name[len(NAMESPACE):]
+
     def rebuild(self, ignore_cache=False):
         """ rebuild the container image """
         # self.is_running() is called for the check against manually started containers from this image.
@@ -390,7 +396,7 @@ class DockerContainer(AbstractContainer):
         """ return id of last known container instance, or False otherwise"""
         # the running id file is written by `docker run --cidfile <file>` in .start()
         try:
-            f = open(self.name + '.running_container_id', 'r')
+            f = open(self.name_without_namespace() + '.running_container_id', 'r')
             return f.read()
         except IOError:
             return False
@@ -398,16 +404,17 @@ class DockerContainer(AbstractContainer):
     def running_container_name(self):
         """ return name of last known container instance, or False otherwise"""
         try:
-            f = open(self.name + '.running_container_name', 'r')
+            f = open(self.name_without_namespace() + '.running_container_name', 'r')
             return f.read()
         except IOError:
             return False
 
     def _set_running_container_name(self, new_id):
         previous_id = self.running_container_name()
-        logging.debug("previous '{}' container name was: {}".format(self.name, previous_id))
-        logging.debug("new '{}' container name is now: {}".format(self.name, new_id))
-        f = open(self.name + '.running_container_name', 'w')
+        name_without_ns = self.name_without_namespace()
+        logging.debug("previous '%s' container name was: %s", name_without_ns, previous_id)
+        logging.debug("new '%s' container name is now: %s", name_without_ns, new_id)
+        f = open(name_without_ns + '.running_container_name', 'w')
         f.write(new_id)
         f.close()
 
@@ -422,14 +429,15 @@ class DockerContainer(AbstractContainer):
     def start(self):
         if self.is_running():
             raise Exception('container is already running')
-        container_id_file = "{}.running_container_id".format(self.name)
+        name_without_ns = self.name_without_namespace()
+        container_id_file = "{}.running_container_id".format(name_without_ns)
         # move container id file out of the way if it exists - otherwise docker complains at startup
         try:
             os.rename(container_id_file, container_id_file + "_previous")
         except OSError:
             pass
         # names cannot be reused :( so we need to generate a new one each time
-        new_name = self.name + datetime.datetime.now().strftime("-%Y-%m-%d_%H_%M_%S")
+        new_name = name_without_ns + datetime.datetime.now().strftime("-%Y-%m-%d_%H_%M_%S")
         docker_options = ""
         for linked_container in self.links:
             if not linked_container.is_running():
@@ -802,7 +810,12 @@ def main():
     given_containers = CONFIG_CONTAINERS
     if arguments["<container>"]:
         # use containers given on commandline containers, but keep the configuration order
-        given_containers = [c for c in CONFIG_CONTAINERS if (c.name in arguments["<container>"])]
+        arg_containers_with_ns = [
+            NAMESPACE + c.lstrip(NAMESPACE) for c in arguments['<container>']
+        ]
+        given_containers = [
+            c for c in CONFIG_CONTAINERS if c.name in arg_containers_with_ns
+        ]
         if len(given_containers) != len(arguments["<container>"]):
             raise Exception("Unknown container name(s) given on commandline")
 
