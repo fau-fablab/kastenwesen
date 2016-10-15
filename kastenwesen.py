@@ -811,7 +811,8 @@ def main():
     if arguments["<container>"]:
         # use containers given on commandline containers, but keep the configuration order
         arg_containers_with_ns = [
-            NAMESPACE + c.lstrip(NAMESPACE) for c in arguments['<container>']
+            c if c.startswith(NAMESPACE) else NAMESPACE + c
+            for c in arguments['<container>']
         ]
         given_containers = [
             c for c in CONFIG_CONTAINERS if c.name in arg_containers_with_ns
