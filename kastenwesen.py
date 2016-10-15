@@ -376,7 +376,7 @@ class DockerContainer(AbstractContainer):
     def __str__(self):
         return self.name
 
-    def name_without_namespace(self):
+    def container_base_name(self):
         """Return the image name without namespace."""
         return self.name[len(NAMESPACE):]
 
@@ -396,7 +396,7 @@ class DockerContainer(AbstractContainer):
         """ return id of last known container instance, or False otherwise"""
         # the running id file is written by `docker run --cidfile <file>` in .start()
         try:
-            f = open(self.name_without_namespace() + '.running_container_id', 'r')
+            f = open(self.container_base_name() + '.running_container_id', 'r')
             return f.read()
         except IOError:
             return False
@@ -404,17 +404,17 @@ class DockerContainer(AbstractContainer):
     def running_container_name(self):
         """ return name of last known container instance, or False otherwise"""
         try:
-            f = open(self.name_without_namespace() + '.running_container_name', 'r')
+            f = open(self.container_base_name() + '.running_container_name', 'r')
             return f.read()
         except IOError:
             return False
 
     def _set_running_container_name(self, new_id):
         previous_id = self.running_container_name()
-        name_without_ns = self.name_without_namespace()
-        logging.debug("previous '%s' container name was: %s", name_without_ns, previous_id)
-        logging.debug("new '%s' container name is now: %s", name_without_ns, new_id)
-        f = open(name_without_ns + '.running_container_name', 'w')
+        base_name = self.container_base_name()
+        logging.debug("previous '%s' container name was: %s", base_name, previous_id)
+        logging.debug("new '%s' container name is now: %s", base_name, new_id)
+        f = open(base_name + '.running_container_name', 'w')
         f.write(new_id)
         f.close()
 
@@ -429,15 +429,15 @@ class DockerContainer(AbstractContainer):
     def start(self):
         if self.is_running():
             raise Exception('container is already running')
-        name_without_ns = self.name_without_namespace()
-        container_id_file = "{}.running_container_id".format(name_without_ns)
+        base_name = self.container_base_name()
+        container_id_file = "{}.running_container_id".format(base_name)
         # move container id file out of the way if it exists - otherwise docker complains at startup
         try:
             os.rename(container_id_file, container_id_file + "_previous")
         except OSError:
             pass
         # names cannot be reused :( so we need to generate a new one each time
-        new_name = name_without_ns + datetime.datetime.now().strftime("-%Y-%m-%d_%H_%M_%S")
+        new_name = base_name + datetime.datetime.now().strftime("-%Y-%m-%d_%H_%M_%S")
         docker_options = ""
         for linked_container in self.links:
             if not linked_container.is_running():
