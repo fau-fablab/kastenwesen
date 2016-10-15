@@ -362,7 +362,7 @@ class DockerDatetime(object):
             date = date.replace(tzinfo=None)
             self.date = date
 
-    # We cannot subclass datetime because it cannot the special value ``None``,
+    # We cannot subclass datetime because it cannot contain the special value ``None``,
     # but we try to be as transparent and similar as possible.
 
     def __bool__(self):
@@ -775,8 +775,8 @@ def cleanup_containers(min_age_days=0, simulate=False):
         date_finished = api_client.inspect_container(container['Id'])['State']['FinishedAt']
         date_finished = DockerDatetime(date_finished)
         if date_finished:
-            assert date_finished.to_datetime() > datetime.datetime(2002, 01, 01)
-            if date_finished.timedelta_to_now() < datetime.timedelta(days=1)*min_age_days:
+            assert date_finished.to_datetime() > datetime.datetime(2002, 1, 1)
+            if date_finished.timedelta_to_now() < datetime.timedelta(days=1) * min_age_days:
                 # too young
                 continue
             date_created = DockerDatetime(container['Created'])
