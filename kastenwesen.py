@@ -55,7 +55,6 @@ from __future__ import print_function
 import docker
 import sys
 import logging
-from time import sleep
 import requests
 import subprocess
 import socket
@@ -65,8 +64,8 @@ import dateutil.parser
 from termcolor import colored, cprint
 import os
 from docopt import docopt
-from fcntl import flock, LOCK_EX, LOCK_NB
 from copy import copy
+from pidfilemanager import PidFileManager, AlreadyRunning
 
 # switch off strange python requests warnings and log output
 requests.packages.urllib3.disable_warnings()
@@ -869,13 +868,18 @@ def cleanup_images(min_age_days=0, simulate=False, simulated_deleted_containers=
                 print_warning("Failed to remove unused image {}".format(image['Id']))
 
 
-def print_status_and_exit(given_containers):
+def print_status_and_exit(given_containers, other_instance_running=False):
     if status_many(given_containers):
         print_success("Success.")
         sys.exit(0)
     else:
-        print_fatal("Some containers are not working!")
-        sys.exit(1)
+        if other_instance_running:
+            print_notice("Errors were ignored "
+                         "because another kastenwesen instance is running.")
+            sys.exit(0)
+        else:
+            print_fatal("Some containers are not working!")
+            sys.exit(1)
 
 
 def check_config(containers):
@@ -940,16 +944,21 @@ def main():
     lock_needed = not sum([arguments[key] for key in read_only_args])
     if arguments["check-for-updates"] and arguments["--auto-upgrade"]:
         lock_needed = True
+    pid = PidFileManager("/var/lock/kastenwesen")
+    other_instance_running = False
     if lock_needed:
         # Lock against concurrent use, except for readonly operations
         try:
-            lockfile = open("/var/lock/kastenwesen.lock", "w")
-        except IOError:
-            print_fatal("Cannot acquire lock. Are you root?")
-        try:
-            flock(lockfile.fileno(), LOCK_EX | LOCK_NB)
-        except IOError:
-            print_fatal("Another instance of kastenwesen is already running. Exiting")
+            pid.lock()
+        except AlreadyRunning, e:
+            print_fatal(e.message)
+    else:
+        # readonly operations - print a warning if lockfile is still valid,
+        # but continue nevertheless
+        if pid.another_instance_is_running():
+            other_instance_running = True
+            print_warning("Another instance is already running: {}"
+                          .format(pid.lockfile_information_str()))
 
     check_config(CONFIG_CONTAINERS)
 
@@ -976,7 +985,7 @@ def main():
         time.sleep(DEFAULT_STARTUP_GRACETIME)
         print_status_and_exit(given_containers)
     elif arguments["status"]:
-        print_status_and_exit(given_containers)
+        print_status_and_exit(given_containers, other_instance_running)
     elif arguments["start"]:
         restart_many(container for container in given_containers
                      if not (container.is_running() or container.only_build))
