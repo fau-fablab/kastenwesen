@@ -44,6 +44,10 @@ Actions explained:
   shell: exec a shell inside the running container, or inside a separate instance of this image if using --new-instance
   cleanup: carefully remove old containers and images that are no longer used
 
+If check-for-updates is called with option --auto-upgrade, the upgrade will be triggered automatically.
+This can be prevented by disabling it in kastenwesen_config.py. If disabled auto-upgrade will be automatically skipped
+in non-interactive shells.
+
 If the containers argument is not given, the command refers to all containers in the config.
 """
 
@@ -867,6 +871,41 @@ def check_config(containers):
             assert link in containers[0:i], "containers may only link to containers defined before them"
 
 
+def query_yes_no(question, default="yes"):
+    """Ask a yes/no question via raw_input() and return their answer.
+
+    "question" is a string that is presented to the user.
+    "default" is the presumed answer if the user just hits <Enter>.
+        It must be "yes" (the default), "no" or None (meaning
+        an answer is required of the user).
+
+    The "answer" return value is True for "yes" or False for "no".
+
+    Based on `code by Stackoverflow-user fmark<https://stackoverflow.com/a/3041990/4244236>`_.
+    """
+    valid = {"yes": True, "y": True, "ye": True,
+             "no": False, "n": False}
+    if default is None:
+        prompt = " [y/n] "
+    elif default == "yes":
+        prompt = " [Y/n] "
+    elif default == "no":
+        prompt = " [y/N] "
+    else:
+        raise ValueError("invalid default answer: '%s'" % default)
+
+    while True:
+        sys.stdout.write(question + prompt)
+        choice = raw_input().lower()
+        if default is not None and choice == '':
+            return valid[default]
+        elif choice in valid:
+            return valid[choice]
+        else:
+            sys.stdout.write("Please respond with 'yes' or 'no' "
+                             "(or 'y' or 'n').\n")
+
+
 def main():
     arguments = docopt(__doc__, version='')
 
@@ -960,8 +999,18 @@ def main():
                           "or: kastenwesen rebuild --no-cache {0}".format(containers_str))
             sys.exit(1)
         # auto upgrade:
+        if arguments["--auto-upgrade"] and disable_auto_upgrade:
+            if sys.__stdin__.isatty():
+                query = query_yes_no("Auto-Upgrades are disabled by kastenwesen_config, "
+                             "do you want to upgrade nevertheless?", default="no")
+                if not query:
+                    print_bold("You selected not to auto-upgrade.")
+                    sys.exit(1)
+            else:
+                print_bold("Auto-Upgrades are disabled by current kastenwesen_config!")
+                sys.exit(1)
         print_bold("\n\nUpdating containers with outdated packages: {}\n".format(containers_str))
-        time.sleep(2) # some time to cancel
+        time.sleep(2)  # some time to cancel
         affected_containers = rebuild_many(containers_with_updates, ignore_cache=True)
         print_status_and_exit(affected_containers)
     else:
@@ -977,6 +1026,7 @@ if __name__ == "__main__":
     if not os.path.isfile("kastenwesen_config.py"):
         print_fatal("No 'kastenwesen_config.py' found in the current directory or in '{0}'".format(os.getcwd()))
     config_containers = []
+    disable_auto_upgrade = False
     # set config_containers from conf file
     execfile('kastenwesen_config.py')
     CONFIG_CONTAINERS = config_containers

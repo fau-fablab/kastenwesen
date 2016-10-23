@@ -3,6 +3,8 @@
 
 config_containers = []
 
+disable_auto_upgrade = True
+
 travis = False
 if os.environ.get("TRAVIS"):
     print("\nHey Travis, nice to see you. I will progress slowly for you, so my tests won't fail.\n")
