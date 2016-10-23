@@ -11,6 +11,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
   # Every Vagrant virtual environment requires a box to build off of.
   config.vm.box = "ubuntu/trusty64"
+  # use "ubuntu/xenial64" to test systemd
 
   # Disable automatic box update checking. If you disable this, then
   # boxes will only be checked for updates when the user runs
@@ -63,7 +64,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
   
   config.vm.provision "shell" do |foobar|
-    foobar.inline = "cd /home/vagrant/share/ && ./install_ubuntu_14_04.sh"
+    foobar.inline = "cd /home/vagrant/share/ && ./install_ubuntu.sh"
   end
   config.vm.provision "shell" do |foobar|
     foobar.inline = "ln -fs /home/vagrant/share/example-config /etc/kastenwesen"

@@ -6,6 +6,7 @@
 
 # Vagrant
 .vagrant
+*-console.log
 
 # IDE and OS
 .directory

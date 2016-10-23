@@ -1,0 +1,14 @@
+[Unit]
+Description=Kastenwesen docker management
+Requires=docker.service
+ConditionPathExists=/etc/kastenwesen/kastenwesen_config.py
+
+[Service]
+Type=oneshot
+ExecStart=/opt/kastenwesen/kastenwesen start
+RemainAfterExit=true
+ExecStop=/opt/kastenwesen/kastenwesen stop
+StandardOutput=journal
+
+[Install]
+WantedBy=multi-user.target
