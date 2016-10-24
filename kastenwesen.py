@@ -70,7 +70,7 @@ requests_log = logging.getLogger("requests")
 requests_log.setLevel(logging.WARNING)
 
 # time to wait between starting containers and checking the status
-STARTUP_GRACETIME = 2
+DEFAULT_STARTUP_GRACETIME = 2
 
 # default TCP timeout for tests
 TCP_TIMEOUT = 2
@@ -103,19 +103,26 @@ def exec_verbose(cmd, return_output=False):
 
 
 def print_success(text):
+    """print positive information and success messages"""
     cprint(text, attrs=['bold'], color='green')
 
+def print_notice(text):
+    """print information which is between good and bad, e.g. "container is still starting..." """
+    cprint(text, attrs=['bold'], color='yellow')
 
 def print_warning(text):
+    """print negative information, errors, "container stopped", ... """
     cprint(text, attrs=['bold'], color='red', file=sys.stderr)
 
 
 def print_fatal(text):
+    """print fatal errors and immediately exit"""
     cprint(text, attrs=['bold'], color='red', file=sys.stderr)
     sys.exit(1)
 
 
 def print_bold(text):
+    """print neutral but important information"""
     cprint(text, attrs=['bold'])
 
 
@@ -227,11 +234,14 @@ class DockerShellTest(AbstractTest):
 
 
 class AbstractContainer(object):
-    def __init__(self, name, sleep_before_test=0.5, only_build=False):
+    def __init__(self, name, sleep_before_test=0.5, only_build=False, startup_gracetime=None):
         self.name = NAMESPACE + name
         self.tests = []
         self.links = []
         self.sleep_before_test = sleep_before_test
+        if startup_gracetime is None:
+            startup_gracetime = DEFAULT_STARTUP_GRACETIME
+        self.startup_gracetime = startup_gracetime
         self.only_build = only_build
 
     def add_test(self, test):
@@ -250,6 +260,15 @@ class AbstractContainer(object):
     def is_running(self):
         return False
 
+    def time_running(self):
+        """
+        Time in seconds since last start/restart, or `None` if unsupported or temporarily not available.
+        Test failures will be ignored if this runtime is shorter than a startup gracetime.
+
+        :rtype: None | float
+        """
+        return None
+
     def test(self, sleep_before=True):
         if not self.tests:
             logging.warn("no tests defined for container {}, a build error might go unnoticed!".format(self.name))
@@ -263,29 +282,34 @@ class AbstractContainer(object):
         return success
 
     def print_status(self, sleep_before=True):
-        if self.only_build:
-            if self.tests:
-                if not self.test(sleep_before):
-                    print_warning("{name}: tests failed".format(name=self.name))
-                    return False
-                else:
-                    print_success("{}: tests OK".format(self.name))
-                    return True
-            else:
-                print_success("{} (only build)".format(self.name))
-                return True
         running = self.is_running()
-        if not running:
+        time_running = self.time_running()
+        if not running and not self.only_build:
             print_warning("{name}: container is stopped".format(name=self.name))
+        if self.only_build:
+            print_success("{} (only build)".format(self.name))
+            # NOTE: tests in containers with only_build=True are currently not supported.
+            return True
         if self.test(sleep_before):
+            # tests successful
             if running:
                 print_success("{name} running, tests OK".format(name=self.name))
                 return True
             else:
                 print_warning("{name}: container is stopped, but tests are successful. WTF?".format(name=self.name))
-        elif running:
-            print_warning("{name} running, but tests failed".format(name=self.name))
-        return False
+                return False
+        else:
+            if running:
+                if time_running < self.startup_gracetime:
+                    print_notice("{name} starting up...  tests not yet OK".format(name=self.name))
+                    return True
+                else:
+                    print_warning("{name} running, but tests failed".format(name=self.name))
+                    return False
+            else:
+                # The container doesn't run,
+                # therefore it is normal that the tests will fail.
+                return False
 
     def needs_package_updates(self):
         """
@@ -320,13 +344,70 @@ class MonitoringTask(AbstractContainer):
         AbstractContainer.__init__(self, name, only_build=True)
 
 
-class DockerContainer(AbstractContainer):
-    def __init__(self, name, path, docker_options="", sleep_before_test=0.5, only_build=False, alias_tags=None):
+class DockerDatetime(object):
+    def __init__(self, value):
+        """
+        Convert a datetime representation from the docker API into suitable
+        python objects.
+        Most functions take a ``default`` argument to control what is returned
+        if the Docker API returns the pseudo-date ``0001-01-01T00:00:00Z``.
 
+        :type value: int | str
+        """
+        if isinstance(value, int):
+            self.date = datetime.datetime.utcfromtimestamp(value)
+        elif value == "0001-01-01T00:00:00Z":
+            self.date = None
+        else:
+            date = dateutil.parser.parse(value)
+            # the returned timestamp is always UTC
+            date = date.replace(tzinfo=None)
+            self.date = date
+
+    # We cannot subclass datetime because it cannot contain the special value ``None``,
+    # but we try to be as transparent and similar as possible.
+
+    def __bool__(self):
+        """ evaluate as logical ``False`` if the Docker API returns the pseudo-date ``0001-01-01T00:00:00Z``. """
+        return bool(self.date)
+
+    def __nonzero__(self):
+        # python2 compatibility
+        return self.__bool__()
+
+    def __str__(self):
+        return str(self.date)
+
+    # a few helpful functions
+
+    def to_datetime(self, default=None):
+        return self.date or default
+
+    def timedelta_to_now(self, default=None):
+        """ difference between the datetime and the system time.
+        Positive if the date is in the past."""
+        if self.date is None:
+            return default
+        else:
+            return datetime.datetime.utcnow() - self.date
+
+    def seconds_to_now(self, default=float('inf')):
+        """ seconds between the datetime and the system time.
+        Positive if the date is in the past."""
+        delta = self.timedelta_to_now()
+        if delta is None:
+            return default
+        else:
+            return delta.total_seconds()
+
+
+class DockerContainer(AbstractContainer):
+    def __init__(self, name, path, docker_options="", sleep_before_test=0.5, only_build=False, alias_tags=None, startup_gracetime=None):
         """
         :param docker_options: commandline options to 'docker run'
         """
-        AbstractContainer.__init__(self, name, sleep_before_test, only_build)
+        AbstractContainer.__init__(self, name, sleep_before_test,
+                                   only_build, startup_gracetime)
         self.image_name = self.name + ':latest'
         self.path = path
         self.docker_options = docker_options
@@ -495,6 +576,15 @@ class DockerContainer(AbstractContainer):
             return status['State']['Running']
         except docker.errors.NotFound:
             return False
+
+    def time_running(self):
+        if not self.running_container_id():
+            return None
+        try:
+            status = api_client.inspect_container(self.running_container_id())
+            return DockerDatetime(status['State']['StartedAt']).seconds_to_now()
+        except docker.errors.NotFound:
+            return None
 
     def needs_package_updates(self):
         kastenwesen_path = os.path.dirname(os.path.realpath(__file__))
@@ -690,20 +780,21 @@ def cleanup_containers(min_age_days=0, simulate=False):
         if state['Running']:
             continue
         date_finished = api_client.inspect_container(container['Id'])['State']['FinishedAt']
-        if date_finished == "0001-01-01T00:00:00Z":
-            date_finished = None
-        else:
-            date_finished = dateutil.parser.parse(date_finished)
-            date_finished = date_finished.replace(tzinfo=None)  # the returned timestamp is always UTC
-        now = datetime.datetime.utcnow()
+        date_finished = DockerDatetime(date_finished)
         if date_finished:
-            assert date_finished > datetime.datetime(2002, 01, 01)
-            if date_finished > now - datetime.timedelta(days=1)*min_age_days:
+            assert date_finished.to_datetime() > datetime.datetime(2002, 1, 1)
+            if date_finished.timedelta_to_now() < datetime.timedelta(days=1) * min_age_days:
                 # too young
                 continue
-            date_created = datetime.datetime.utcfromtimestamp(container['Created'])
-            date_created = date_created.replace(tzinfo=None)  # the result is always UTC
-            assert date_created <= date_finished, "Container creation time is after the time it finished: container='{}', parsed creation time={} --  state='{}'  parsed finishing time={}".format(container, datetime.datetime.fromtimestamp(container['Created']), api_client.inspect_container(container['Id'])['State'], date_finished)
+            date_created = DockerDatetime(container['Created'])
+            assert date_created.to_datetime() <= date_finished.to_datetime(), \
+                "Container creation time is after the time it finished: " \
+                "container='{}', parsed creation time={} --  state='{}' " \
+                "parsed finishing time={}" \
+                .format(container,
+                        date_created,
+                        api_client.inspect_container(container['Id'])['State'],
+                        date_finished)
         if container['Id'] in config_container_ids:
             print_warning("Not removing stopped container {} because it is the last known instance".format(container['Names']))
             # the last known instance is never removed, even if it was stopped ages ago
@@ -822,18 +913,18 @@ def main():
 
     if arguments["rebuild"]:
         affected_containers = rebuild_many(given_containers, ignore_cache=bool(arguments["--no-cache"]))
-        time.sleep(STARTUP_GRACETIME)
+        time.sleep(DEFAULT_STARTUP_GRACETIME)
         print_status_and_exit(affected_containers)
     elif arguments["restart"]:
         restart_many(given_containers)
-        time.sleep(STARTUP_GRACETIME)
+        time.sleep(DEFAULT_STARTUP_GRACETIME)
         print_status_and_exit(given_containers)
     elif arguments["status"]:
         print_status_and_exit(given_containers)
     elif arguments["start"]:
         restart_many(container for container in given_containers
                      if not (container.is_running() or container.only_build))
-        time.sleep(STARTUP_GRACETIME)
+        time.sleep(DEFAULT_STARTUP_GRACETIME)
         print_status_and_exit(given_containers)
     elif arguments["stop"]:
         stop_many(given_containers)

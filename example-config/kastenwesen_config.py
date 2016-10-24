@@ -51,10 +51,15 @@ config_containers.append(test1)
 # ===================================== #
 # A testserver listening on port 1232   #
 # only listenining on localhost         #
+# 20s extra startup gracetime           #
 #########################################
-test2 = DockerContainer(name="test2", path="./test2/")
+test2 = DockerContainer(name="test2", path="./test2/", startup_gracetime=20)
 test2.add_link(test1),
 test2.add_port(host_addr="127.0.0.1", host_port=1232, container_port=1234)
+# you can test the startup gracetime by adding this always-failing test.
+# `kastenwesen status` will only return an error 20 seconds after starting the
+# container, but not before.
+# test2.add_test(DockerShellTest("false"))
 config_containers.append(test2)
 
 #########################################
