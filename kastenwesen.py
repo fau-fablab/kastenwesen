@@ -70,7 +70,7 @@ requests_log = logging.getLogger("requests")
 requests_log.setLevel(logging.WARNING)
 
 # time to wait between starting containers and checking the status
-STARTUP_GRACETIME = 2
+DEFAULT_STARTUP_GRACETIME = 2
 
 # default TCP timeout for tests
 TCP_TIMEOUT = 2
@@ -232,11 +232,13 @@ class DockerShellTest(AbstractTest):
 
 
 class AbstractContainer(object):
-    def __init__(self, name, sleep_before_test=0.5, only_build=False, startup_gracetime=STARTUP_GRACETIME):
+    def __init__(self, name, sleep_before_test=0.5, only_build=False, startup_gracetime=None):
         self.name = name
         self.tests = []
         self.links = []
         self.sleep_before_test = sleep_before_test
+        if startup_gracetime is None:
+            startup_gracetime = DEFAULT_STARTUP_GRACETIME
         self.startup_gracetime = startup_gracetime
         self.only_build = only_build
 
@@ -296,8 +298,6 @@ class AbstractContainer(object):
                 return False
         else:
             if running:
-                print(time_running)
-                print(self.startup_gracetime)
                 if time_running < self.startup_gracetime:
                     print_notice("{name} starting up...  tests not yet OK".format(name=self.name))
                     return True
@@ -400,8 +400,7 @@ class DockerDatetime(object):
 
 
 class DockerContainer(AbstractContainer):
-    def __init__(self, name, path, docker_options="", sleep_before_test=0.5, only_build=False, alias_tags=None, startup_gracetime=STARTUP_GRACETIME):
-
+    def __init__(self, name, path, docker_options="", sleep_before_test=0.5, only_build=False, alias_tags=None, startup_gracetime=None):
         """
         :param docker_options: commandline options to 'docker run'
         """
@@ -900,18 +899,18 @@ def main():
 
     if arguments["rebuild"]:
         affected_containers = rebuild_many(given_containers, ignore_cache=bool(arguments["--no-cache"]))
-        time.sleep(STARTUP_GRACETIME)
+        time.sleep(DEFAULT_STARTUP_GRACETIME)
         print_status_and_exit(affected_containers)
     elif arguments["restart"]:
         restart_many(given_containers)
-        time.sleep(STARTUP_GRACETIME)
+        time.sleep(DEFAULT_STARTUP_GRACETIME)
         print_status_and_exit(given_containers)
     elif arguments["status"]:
         print_status_and_exit(given_containers)
     elif arguments["start"]:
         restart_many(container for container in given_containers
                      if not (container.is_running() or container.only_build))
-        time.sleep(STARTUP_GRACETIME)
+        time.sleep(DEFAULT_STARTUP_GRACETIME)
         print_status_and_exit(given_containers)
     elif arguments["stop"]:
         stop_many(given_containers)
