@@ -3,5 +3,5 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/kastenwes
 # update status page every minute
 * *     * * *     root   /opt/kastenwesen/cron_status_html.sh
 
-# every few hours: check for updates and send email
-42 8,12,17,21     * * *     root   kastenwesen check-for-updates 2>&1 1>/dev/null | sed -r 's/\x1b[\[0-9;]+m//g'
+# 3h37: check for updates, install and send e-mail
+37 3     * * *     root   kastenwesen check-for-updates --auto-upgrade 2>&1 1>/dev/null | sed -r 's/\x1b[\[0-9;]+m//g'
