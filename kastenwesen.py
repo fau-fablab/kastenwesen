@@ -341,11 +341,11 @@ class CustomBuildscriptTask(AbstractContainer):
 
 
 class MonitoringTask(AbstractContainer):
-    def __init__(self, name):
+    def __init__(self, name, startup_gracetime):
         """
         pseudo-'container' that only runs tests, nothing else. Can be used for monitoring external services from kastenwesen status.
         """
-        AbstractContainer.__init__(self, name, only_build=True)
+        AbstractContainer.__init__(self, name, only_build=True, startup_gracetime=startup_gracetime)
 
 
 class DockerDatetime(object):
