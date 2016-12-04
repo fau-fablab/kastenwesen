@@ -1,7 +1,10 @@
 # debian crontab fragment
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/kastenwesen
 # update status page every minute
-* *     * * *     root   /opt/kastenwesen/cron_status_html.sh
+ *  *  *  *  *  root    /opt/kastenwesen/cron_status_html.sh
 
 # 3h37: check for updates, install and send e-mail
-37 3     * * *     root   kastenwesen check-for-updates --auto-upgrade 2>&1 1>/dev/null | sed -r 's/\x1b[\[0-9;]+m//g'
+37  3  *  *  *  root    kastenwesen check-for-updates --auto-upgrade 2>&1 1>/dev/null | sed -r 's/\x1b[\[0-9;]+m//g'
+
+# 4:42: clean old containers
+42  4  *  *  *  root    kastenwesen cleanup
