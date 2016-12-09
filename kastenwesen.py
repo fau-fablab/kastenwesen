@@ -237,7 +237,10 @@ class DockerShellTest(AbstractTest):
         return True
 
 
-class AbstractContainer(object):
+class AbstractTask(object):
+
+    __metaclass__ = abc.ABCMeta
+
     def __init__(self, name, sleep_before_test=0.5, only_build=False, startup_gracetime=None):
         self.name = NAMESPACE + name
         self.tests = []
@@ -248,30 +251,13 @@ class AbstractContainer(object):
         self.startup_gracetime = startup_gracetime
         self.only_build = only_build
 
+    @abc.abstractmethod
+    def rebuild(self, ignore_cache=False):
+        """Rebuild the container."""
+
     def add_test(self, test):
         assert isinstance(test, AbstractTest), "given test must be a AbstractTest subclass"
         self.tests.append(test)
-
-    def stop(self):
-        pass
-
-    def start(self):
-        pass
-
-    def rebuild(self, ignore_cache=False):
-        pass
-
-    def is_running(self):
-        return False
-
-    def time_running(self):
-        """
-        Time in seconds since last start/restart, or `None` if unsupported or temporarily not available.
-        Test failures will be ignored if this runtime is shorter than a startup gracetime.
-
-        :rtype: None | float
-        """
-        return None
 
     def test(self, sleep_before=True):
         if not self.tests:
@@ -285,67 +271,43 @@ class AbstractContainer(object):
             time.sleep(self.sleep_before_test)
         return success
 
+    @abc.abstractmethod
     def print_status(self, sleep_before=True):
-        running = self.is_running()
-        time_running = self.time_running()
-        if not running and not self.only_build:
-            print_warning("{name}: container is stopped".format(name=self.name))
-        if self.only_build:
-            print_success("{} (only build)".format(self.name))
-            # NOTE: tests in containers with only_build=True are currently not supported.
-            return True
-        if self.test(sleep_before):
-            # tests successful
-            if running:
-                print_success("{name} running, tests OK".format(name=self.name))
-                return True
-            else:
-                print_warning("{name}: container is stopped, but tests are successful. WTF?".format(name=self.name))
-                return False
-        else:
-            if running:
-                if time_running < self.startup_gracetime:
-                    print_notice("{name} starting up...  tests not yet OK".format(name=self.name))
-                    return True
-                else:
-                    print_warning("{name} running, but tests failed".format(name=self.name))
-                    return False
-            else:
-                # The container doesn't run,
-                # therefore it is normal that the tests will fail.
-                return False
-
-    def needs_package_updates(self):
-        """
-        Run a check for package updates
-
-        :return: ``True`` if any packages could be updated
-        :rtype: bool
-        """
-        return False
+        """Print the status of the current task."""
 
 
-class CustomBuildscriptTask(AbstractContainer):
+class CustomBuildscriptTask(AbstractTask):
     def __init__(self, name, build_command):
         """
         Run a custom build script for a build-only container.
 
         The environment variable IGNORE_CACHE is set to 0/1 depending on the use of --no-cache in 'kastenwesen rebuild'.
         """
-        AbstractContainer.__init__(self, name, only_build=True)
+        AbstractTask.__init__(self, name, only_build=True)
         self.build_command = build_command
 
     def rebuild(self, ignore_cache=False):
         # TODO handle ignore_cache
         exec_verbose("IGNORE_CACHE={} ".format(int(ignore_cache)) + self.build_command)
 
+    def print_status(self, sleep_before=True):
+        print_success("{} (Custom Buildscript Task)".format(self.name))
 
-class MonitoringTask(AbstractContainer):
+
+class MonitoringTask(AbstractTask):
     def __init__(self, name):
         """
-        pseudo-'container' that only runs tests, nothing else. Can be used for monitoring external services from kastenwesen status.
+        pseudo-'container' that only runs tests, nothing else.
+
+        Can be used for monitoring external services from kastenwesen status.
         """
-        AbstractContainer.__init__(self, name, only_build=True)
+        AbstractTask.__init__(self, name, only_build=True)
+
+    def rebuild(self, ignore_cache):
+        pass
+
+    def print_status(self, sleep_before=True):
+        print_success("{} (Monitoring Task)".format(self.name))
 
 
 class DockerDatetime(object):
@@ -405,13 +367,13 @@ class DockerDatetime(object):
             return delta.total_seconds()
 
 
-class DockerContainer(AbstractContainer):
+class DockerContainer(AbstractTask):
     def __init__(self, name, path, docker_options="", sleep_before_test=0.5, only_build=False, alias_tags=None, startup_gracetime=None):
         """
         :param docker_options: commandline options to 'docker run'
         """
-        AbstractContainer.__init__(self, name, sleep_before_test,
-                                   only_build, startup_gracetime)
+        AbstractTask.__init__(self, name, sleep_before_test,
+                              only_build, startup_gracetime)
         self.image_name = self.name + ':latest'
         self.path = path
         self.docker_options = docker_options
@@ -559,7 +521,9 @@ class DockerContainer(AbstractContainer):
         running_containers = api_client.containers()
         running_container_ids = [container['Id'] for container in running_containers]
         logging.debug("Running containers: " + str(running_container_ids))
-        config_container_ids = [container.running_container_id() for container in CONFIG_CONTAINERS if isinstance(container, DockerContainer)]
+        config_container_ids = [
+            container.running_container_id() for container in CONFIG_CONTAINERS if isinstance(container, DockerContainer)
+        ]
 
         # Check that no unmanaged containers are running from the same image
         for container in running_containers:
@@ -637,13 +601,43 @@ class DockerContainer(AbstractContainer):
             cmd = "docker exec -it {container} bash".format(container=self.running_container_name())
         exec_verbose(cmd)
 
+    def print_status(self, sleep_before=True):
+        running = self.is_running()
+        time_running = self.time_running()
+        if not running and not self.only_build:
+            print_warning("{name}: container is stopped".format(name=self.name))
+        if self.only_build:
+            print_success("{} (only build)".format(self.name))
+            # NOTE: tests in containers with only_build=True are currently not supported.
+            return True
+        if self.test(sleep_before):
+            # tests successful
+            if running:
+                print_success("{name} running, tests OK".format(name=self.name))
+                return True
+            else:
+                print_warning("{name}: container is stopped, but tests are successful. WTF?".format(name=self.name))
+                return False
+        else:
+            if running:
+                if time_running < self.startup_gracetime:
+                    print_notice("{name} starting up...  tests not yet OK".format(name=self.name))
+                    return True
+                else:
+                    print_warning("{name} running, but tests failed".format(name=self.name))
+                    return False
+            else:
+                # The container doesn't run,
+                # therefore it is normal that the tests will fail.
+                return False
+
 
 def rebuild_many(containers, ignore_cache=False):
     """ rebuild given containers
 
-    :param list[AbstractContainer] containers: containers to rebuild
+    :param list[AbstractTask] containers: containers to rebuild
     :param bool ignore_cache: use ``--no-cache`` in docker build to ensure that external dependencies are fresh
-    :return list[AbstractContainer]: all containers that were affected by the rebuild. Also contains additional dependent containers that had to be restarted.
+    :return list[AbstractTask]: all containers that were affected by the rebuild. Also contains additional dependent containers that had to be restarted.
     """
     for container in containers:
         container.rebuild(ignore_cache)
@@ -710,8 +704,8 @@ def restart_many(requested_containers):
     """
     Restart given containers, and if necessary also their dependencies and reverse dependencies.
 
-    :param list[AbstractContainer] containers: containers to restart
-    :return list[AbstractContainer]: all containers that were affected. Also contains additional dependent containers that had to be (re)started.
+    :param list[DockerContainer] containers: containers to restart
+    :return list[DockerContainer]: all containers that were affected. Also contains additional dependent containers that had to be (re)started.
     """
     # also restart the containers that will be broken by this:
     stop_containers = stop_many(requested_containers, message_restart=True)
@@ -735,8 +729,8 @@ def stop_many(requested_containers, message_restart=False):
     Stop the given containers and all that that depend on them (i.e. are linked to them)
 
     :param containers: List of containers
-    :type containers: list[AbstractContainer]
-    :rtype: list[AbstractContainer]
+    :type containers: list[DockerContainer]
+    :rtype: list[DockerContainer]
     :return: list of all containers that were stopped
              (includes the ones stopped because of dependencies)
 
@@ -745,13 +739,17 @@ def stop_many(requested_containers, message_restart=False):
         This only affects the log output, not the actions taken
     """
 
-    stop_containers = list(reversed(ordered_by_dependency(requested_containers, add_reverse_dependencies=True)))
+    stop_containers = [
+        c for c
+        in reversed(ordered_by_dependency(requested_containers, add_reverse_dependencies=True))
+        if isinstance(c, DockerContainer)
+    ]
     added_dep_containers = [container for container in stop_containers
                             if (container not in requested_containers and container.is_running())]
     if added_dep_containers:
-            print_bold("Also {verb} containers affected by this action: {containers}"
-                       .format(verb="restarting" if message_restart else "stopping",
-                               containers=", ".join([str(i) for i in added_dep_containers])))
+        print_bold("Also {verb} containers affected by this action: {containers}"
+                   .format(verb="restarting" if message_restart else "stopping",
+                           containers=", ".join([str(i) for i in added_dep_containers])))
     for container in stop_containers:
         container.stop()
     return stop_containers
@@ -776,8 +774,10 @@ def cleanup_containers(min_age_days=0, simulate=False):
 
     # get all non-running containers
     containers = api_client.containers(trunc=False, all=True)
-    config_container_ids = [c.running_container_id() for c in CONFIG_CONTAINERS \
-                            if isinstance(c, DockerContainer)]
+    config_container_ids = [
+        c.running_container_id() for c in CONFIG_CONTAINERS
+        if isinstance(c, DockerContainer)
+    ]
     removed_containers = []
     for container in containers:
         state = api_client.inspect_container(container['Id'])['State']
@@ -962,7 +962,7 @@ def main():
         print_status_and_exit(given_containers)
     elif arguments["start"]:
         restart_many(container for container in given_containers
-                     if not (container.is_running() or container.only_build))
+                     if isinstance(container, DockerContainer) and not (container.is_running() or container.only_build))
         time.sleep(DEFAULT_STARTUP_GRACETIME)
         print_status_and_exit(given_containers)
     elif arguments["stop"]:
