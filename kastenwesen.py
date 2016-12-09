@@ -475,7 +475,7 @@ class DockerContainer(AbstractContainer):
         nocache = "--no-cache" if ignore_cache else ""
         exec_verbose("docker build {nocache} -t {imagename} {path}".format(nocache=nocache, imagename=self.image_name, path=self.path))
         for tag in self.alias_tags:
-            exec_verbose("docker tag -f {imagename} {tag}".format(imagename=self.image_name, tag=tag))
+            exec_verbose("docker tag {imagename} {tag}".format(imagename=self.image_name, tag=tag))
 
     def running_container_id(self):
         """ return id of last known container instance, or False otherwise"""
