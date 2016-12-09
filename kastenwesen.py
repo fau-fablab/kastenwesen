@@ -52,6 +52,7 @@ If the containers argument is not given, the command refers to all containers in
 """
 
 from __future__ import print_function
+import abc
 import docker
 import sys
 import logging
