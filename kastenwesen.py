@@ -147,8 +147,8 @@ def get_selinux_status():
             return 'disabled'
 
 
-def docker_version_gt(version):
-    """Return True, if the version of docker is greater thatn `version`."""
+def docker_version_geq(version):
+    """Return True, if the version of docker is at least `version`."""
     return LooseVersion(DOCKER_API_CLIENT.version()['Version']) >= version
 
 
@@ -480,11 +480,14 @@ class DockerContainer(AbstractContainer):
         print_bold("rebuilding image " + self.image_name)
         nocache = "--no-cache" if ignore_cache else ""
         exec_verbose("docker build {nocache} -t {imagename} {path}".format(nocache=nocache, imagename=self.image_name, path=self.path))
+        # docker version < 1.10 needs '-f' argument to 'docker tag'
+        # so that it works the way we expect it (overwrite tag if it exists)
+        force_tag_argument = '' if docker_version_geq('1.10') else '-f'
         for tag in self.alias_tags:
             exec_verbose(
                 "docker tag {force} {imagename} {tag}".format(
                     imagename=self.image_name, tag=tag,
-                    force='' if docker_version_gt('1.10') else '-f',
+                    force=force_tag_argument,
                 )
             )
 

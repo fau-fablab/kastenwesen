@@ -17,7 +17,10 @@ if os.environ.get("TRAVIS"):
 # ===================================== #
 # Linux (Ubuntu 14.04) base image       #
 #########################################
-my_linux_base = DockerContainer(name="my-linux-base", path="./my-linux-base/", only_build=True)
+# also available under the alias 'another-name:myversion'
+my_linux_base = DockerContainer(name="my-linux-base", path="./my-linux-base/",
+                                only_build=True,
+                                alias_tags=["another-name:myversion"])
 config_containers.append(my_linux_base)
 
 # TODO dependency on my_linux_base, without linking
