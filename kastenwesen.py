@@ -953,8 +953,8 @@ def main():
         # Lock against concurrent use, except for readonly operations
         try:
             pid.lock()
-        except AlreadyRunning, e:
-            print_fatal(e.message)
+        except AlreadyRunning as e:
+            print_fatal(str(e))
     else:
         # readonly operations - print a warning if lockfile is still valid,
         # but continue nevertheless

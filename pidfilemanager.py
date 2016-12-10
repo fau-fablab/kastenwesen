@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
 # kastenwesen: a python tool for managing multiple docker containers
@@ -63,6 +63,7 @@ class PidFileManager(object):
             # open the file in append-mode because we want to read the content
             # and later erase it, but also creat the file if it doesnt exist
             self.lockfile = open(self.filename, "a+")
+            self.lockfile.seek(0)
             try:
                 self.old_pid = int(self.lockfile.read())
             except ValueError:
