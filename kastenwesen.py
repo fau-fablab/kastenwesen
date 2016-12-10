@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
 # kastenwesen: a python tool for managing multiple docker containers
@@ -50,32 +50,20 @@ in non-interactive shells.
 If the containers argument is not given, the command refers to all containers in the config.
 """
 
-from __future__ import unicode_literals
-from __future__ import print_function
-from __future__ import division
-
 import os
 import sys
-import abc
 import logging
-from time import sleep
+import time
 import subprocess
-import dateutil.parser
 import datetime
 import socket
-import time
 from fcntl import flock, LOCK_EX, LOCK_NB
 from copy import copy
+import dateutil.parser
 import docker
 import requests
 from termcolor import colored, cprint
 from docopt import docopt
-
-if sys.version_info.major > 2:
-    unicode = str
-    basestring = str
-else:
-    input = raw_input
 
 # switch off strange python requests warnings and log output
 requests.packages.urllib3.disable_warnings()
@@ -213,7 +201,7 @@ class DockerShellTest(AbstractTest):
             ``hello | grep -q world``
             Will be interpreted by ``bash`` on the container.
         """
-        assert isinstance(shell_cmd, basestring)
+        assert isinstance(shell_cmd, str)
         self.shell_cmd = shell_cmd
 
     def run(self, container_instance):
@@ -376,10 +364,6 @@ class DockerDatetime(object):
     def __bool__(self):
         """ evaluate as logical ``False`` if the Docker API returns the pseudo-date ``0001-01-01T00:00:00Z``. """
         return bool(self.date)
-
-    def __nonzero__(self):
-        # python2 compatibility
-        return self.__bool__()
 
     def __str__(self):
         return str(self.date)
@@ -849,7 +833,7 @@ def cleanup_images(min_age_days=0, simulate=False, simulated_deleted_containers=
 
     dangling_images = api_client.images(filters={"dangling": True})
     for image in dangling_images:
-        if image['RepoTags'] != [u'<none>:<none>']:
+        if image['RepoTags'] != ['<none>:<none>']:
             # image is tagged, skip
             raise Exception("this should not happen, as we filtered for dangling images only")
         if image['Id'] in used_image_ids:
