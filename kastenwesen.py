@@ -63,7 +63,10 @@ import dateutil.parser
 import docker
 import requests
 from termcolor import colored, cprint
+import os
 from docopt import docopt
+from copy import copy
+from pidfilemanager import PidFileManager, AlreadyRunning
 
 # switch off strange python requests warnings and log output
 requests.packages.urllib3.disable_warnings()
@@ -157,7 +160,7 @@ class URLTest(AbstractTest):
             t = requests.get(self.url, verify=self.verify_ssl_cert)
             t.raise_for_status()
         except IOError as e:
-            logging.error("Test failed for HTTP {}: {}".format(self.url, e))
+            logging.error("Test failed for HTTP %s: %s", self.url, e)
             return False
         return True
 
@@ -172,7 +175,7 @@ class TCPPortTest(AbstractTest):
         try:
             sock = socket.create_connection((self.host, self.port), timeout=TCP_TIMEOUT)
         except IOError:
-            logging.error("Connection failed for TCP host {} port {}".format(self.host, self.port))
+            logging.error("Connection failed for TCP host %s port %s", self.host, self.port)
             return False
         try:
             sock.settimeout(1)
@@ -183,9 +186,11 @@ class TCPPortTest(AbstractTest):
             if not data:
                 raise IOError("no response?")
         except IOError:
-            logging.error("No response from TCP host {} port {} - server dead "
-                         "or this protocol doesn't answer to a simple 'hello' "
-                         "packet.".format(self.host, self.port))
+            logging.error(
+                "No response from TCP host %s port %s - server dead "
+                "or this protocol doesn't answer to a simple 'hello' packet.",
+                self.host, self.port
+            )
             return False
         return True
 
@@ -219,10 +224,10 @@ class DockerShellTest(AbstractTest):
         try:
             subprocess.check_call(cmd)
         except subprocess.CalledProcessError as e:
-            logging.warn("Test with shell command '{command}' failed with returncode {returncode}".format(
-                command=self.shell_cmd,
-                returncode=e.returncode
-            ))
+            logging.warning(
+                "Test with shell command '%s' failed with returncode %s",
+                self.shell_cmd, e.returncode,
+            )
             return False
         return True
 
@@ -265,7 +270,7 @@ class AbstractContainer(object):
 
     def test(self, sleep_before=True):
         if not self.tests:
-            logging.warn("no tests defined for container {}, a build error might go unnoticed!".format(self.name))
+            logging.warning("no tests defined for container %s, a build error might go unnoticed!", self.name)
         success = True
         for test in self.tests:
             success = test.run(self) and success
@@ -523,7 +528,7 @@ class DockerContainer(AbstractContainer):
         docker_options += self.docker_options
         cmdline = "docker run -d --memory=2g  --cidfile={container_id_file} --name={new_name} {docker_opts} {image_name} ".format(container_id_file=container_id_file, new_name=new_name, docker_opts=docker_options, image_name=self.image_name)
         print_bold("Starting container {}".format(new_name))
-        logging.info("Starting {} container: {}".format(self.name, cmdline))
+        logging.info("Starting %s container: %s", self.name, cmdline)
         exec_verbose(cmdline)
         self._set_running_container_name(new_name)
 
@@ -546,8 +551,11 @@ class DockerContainer(AbstractContainer):
         """ warn if any containers not managed by kastenwesen are running from the same image """
         running_containers = api_client.containers()
         running_container_ids = [container['Id'] for container in running_containers]
-        logging.debug("Running containers: " + str(running_container_ids))
-        config_container_ids = [container.running_container_id() for container in CONFIG_CONTAINERS if isinstance(container, DockerContainer)]
+        logging.debug("Running containers: %s", str(running_container_ids))
+        config_container_ids = [
+            container.running_container_id() for container in CONFIG_CONTAINERS
+            if isinstance(container, DockerContainer)
+        ]
 
         # Check that no unmanaged containers are running from the same image
         for container in running_containers:
@@ -677,7 +685,7 @@ def ordered_by_dependency(containers, add_dependencies=False, add_reverse_depend
                             continue
                         else:
                             something_changed = True
-                            logging.debug("Adding reverse dependency {} to the given list of containers".format(link))
+                            logging.debug("Adding reverse dependency %s to the given list of containers", link)
                             reverse_dependencies.add(container)
         containers += list(reverse_dependencies)
     ordered_containers = []
@@ -693,7 +701,7 @@ def ordered_by_dependency(containers, add_dependencies=False, add_reverse_depend
                 if link not in containers:
                     # this container links to a container not given in the list
                     if add_dependencies:
-                        logging.debug("Adding dependency {} to the given list of containers".format(link))
+                        logging.debug("Adding dependency %s to the given list of containers", link)
                         containers.append(link)
                         something_changed = True
                     else:
@@ -720,7 +728,11 @@ def restart_many(requested_containers):
     start_containers = ordered_by_dependency(stop_containers, add_dependencies=True)
     added_dep_containers = [container for container in start_containers if container not in stop_containers]
     if added_dep_containers:
-            print_bold("Also starting necessary dependencies, if not yet running: {}".format(", ".join([str(i) for i in added_dep_containers])))
+        print_bold(
+            "Also starting necessary dependencies, if not yet running: {}".format(
+                ", ".join([str(i) for i in added_dep_containers])
+            )
+        )
 
     for container in start_containers:
         if container.only_build:
@@ -747,12 +759,18 @@ def stop_many(requested_containers, message_restart=False):
     """
 
     stop_containers = list(reversed(ordered_by_dependency(requested_containers, add_reverse_dependencies=True)))
-    added_dep_containers = [container for container in stop_containers
-                            if (container not in requested_containers and container.is_running())]
+    added_dep_containers = [
+        container for container in stop_containers
+        if container not in requested_containers and container.is_running()
+    ]
     if added_dep_containers:
-            print_bold("Also {verb} containers affected by this action: {containers}"
-                       .format(verb="restarting" if message_restart else "stopping",
-                               containers=", ".join([str(i) for i in added_dep_containers])))
+        print_bold(
+            "Also {verb} containers affected by this action: {containers}"
+            .format(
+                verb="restarting" if message_restart else "stopping",
+                containers=", ".join([str(i) for i in added_dep_containers])
+            )
+        )
     for container in stop_containers:
         container.stop()
     return stop_containers
@@ -777,8 +795,10 @@ def cleanup_containers(min_age_days=0, simulate=False):
 
     # get all non-running containers
     containers = api_client.containers(trunc=False, all=True)
-    config_container_ids = [c.running_container_id() for c in CONFIG_CONTAINERS \
-                            if isinstance(c, DockerContainer)]
+    config_container_ids = [
+        c.running_container_id() for c in CONFIG_CONTAINERS
+        if isinstance(c, DockerContainer)
+    ]
     removed_containers = []
     for container in containers:
         state = api_client.inspect_container(container['Id'])['State']
@@ -853,22 +873,27 @@ def cleanup_images(min_age_days=0, simulate=False, simulated_deleted_containers=
                 print_warning("Failed to remove unused image {}".format(image['Id']))
 
 
-def print_status_and_exit(given_containers):
+def print_status_and_exit(given_containers, other_instance_running=False):
     if status_many(given_containers):
         print_success("Success.")
         sys.exit(0)
     else:
-        print_fatal("Some containers are not working!")
-        sys.exit(1)
+        if other_instance_running:
+            print_notice("Errors were ignored "
+                         "because another kastenwesen instance is running.")
+            sys.exit(0)
+        else:
+            print_fatal("Some containers are not working!")
+            sys.exit(1)
 
 
 def check_config(containers):
     # containers may only link to ones that are before them in the list
     # otherwise the whole startup process doesnt work or links to the wrong ones
 
-    for i in range(len(containers)):
-        assert containers[i] not in containers[0:i], "container list contains a duplicate entry: {}".format(containers[i])
-        for link in containers[i].links:
+    for i, container in enumerate(containers):
+        assert container not in containers[0:i], "container list contains a duplicate entry: {}".format(container)
+        for link in container.links:
             assert link in containers[0:i], "containers may only link to containers defined before them"
 
 
@@ -922,16 +947,21 @@ def main():
     lock_needed = not sum([arguments[key] for key in read_only_args])
     if arguments["check-for-updates"] and arguments["--auto-upgrade"]:
         lock_needed = True
+    pid = PidFileManager("/var/lock/kastenwesen")
+    other_instance_running = False
     if lock_needed:
         # Lock against concurrent use, except for readonly operations
         try:
-            lockfile = open("/var/lock/kastenwesen.lock", "w")
-        except IOError:
-            print_fatal("Cannot acquire lock. Are you root?")
-        try:
-            flock(lockfile.fileno(), LOCK_EX | LOCK_NB)
-        except IOError:
-            print_fatal("Another instance is already running. Exiting")
+            pid.lock()
+        except AlreadyRunning, e:
+            print_fatal(e.message)
+    else:
+        # readonly operations - print a warning if lockfile is still valid,
+        # but continue nevertheless
+        if pid.another_instance_is_running():
+            other_instance_running = True
+            print_warning("Another instance is already running: {}"
+                          .format(pid.lockfile_information_str()))
 
     check_config(CONFIG_CONTAINERS)
 
@@ -958,7 +988,7 @@ def main():
         time.sleep(DEFAULT_STARTUP_GRACETIME)
         print_status_and_exit(given_containers)
     elif arguments["status"]:
-        print_status_and_exit(given_containers)
+        print_status_and_exit(given_containers, other_instance_running)
     elif arguments["start"]:
         restart_many(container for container in given_containers
                      if not (container.is_running() or container.only_build))
@@ -1001,7 +1031,7 @@ def main():
         if arguments["--auto-upgrade"] and disable_auto_upgrade:
             if sys.__stdin__.isatty():
                 query = query_yes_no("Auto-Upgrades are disabled by kastenwesen_config, "
-                             "do you want to upgrade nevertheless?", default="no")
+                                     "do you want to upgrade nevertheless?", default="no")
                 if not query:
                     print_bold("You selected not to auto-upgrade.")
                     sys.exit(1)
