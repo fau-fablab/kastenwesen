@@ -53,6 +53,7 @@ try:
     assert_run_okay("restart")
     assert_run_okay("status")
     assert_run_okay("check-for-updates")
+    assert_run_okay("stop")
 except Exception as e:
     diagnostics()
     raise e
