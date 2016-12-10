@@ -87,7 +87,7 @@ def exec_verbose(cmd, return_output=False):
 
     :param bool return_output: return output as string, don't print it to the terminal.
     """
-    print(os.getcwd() + "$ " + colored(cmd, attrs=['bold']))
+    print(os.getcwd() + "$ " + colored(cmd, attrs=['bold']), flush=True)
     if return_output:
         return subprocess.check_output(cmd, shell=True).decode('utf8')
     else:
@@ -130,9 +130,9 @@ def get_selinux_status():
             return subprocess.check_output(
                 'getenforce 2>/dev/null || echo "disabled"',
                 shell=True).decode('utf8').strip().lower()
-        except subprocess.CalledProcessError as e:
+        except subprocess.CalledProcessError as err:
             print_warning("Error while running 'getenforce' to get current SELinux status")
-            print(e)
+            logging.error(err)
             return 'disabled'
 
 
