@@ -66,6 +66,7 @@ import os
 from docopt import docopt
 from copy import copy
 from pidfilemanager import PidFileManager, AlreadyRunning
+from distutils.version import LooseVersion
 
 # switch off strange python requests warnings and log output
 requests.packages.urllib3.disable_warnings()
@@ -143,6 +144,11 @@ def get_selinux_status():
             print_warning("Error while running 'getenforce' to get current SELinux status")
             print(e)
             return 'disabled'
+
+
+def docker_version_geq(version):
+    """Return True, if the version of docker is at least `version`."""
+    return LooseVersion(DOCKER_API_CLIENT.version()['Version']) >= version
 
 
 class AbstractTest(object):
@@ -475,8 +481,16 @@ class DockerContainer(AbstractContainer):
         print_bold("rebuilding image " + self.image_name)
         nocache = "--no-cache" if ignore_cache else ""
         exec_verbose("docker build {nocache} -t {imagename} {path}".format(nocache=nocache, imagename=self.image_name, path=self.path))
+        # docker version < 1.10 needs '-f' argument to 'docker tag'
+        # so that it works the way we expect it (overwrite tag if it exists)
+        force_tag_argument = '' if docker_version_geq('1.10') else '-f'
         for tag in self.alias_tags:
-            exec_verbose("docker tag -f {imagename} {tag}".format(imagename=self.image_name, tag=tag))
+            exec_verbose(
+                "docker tag {force} {imagename} {tag}".format(
+                    imagename=self.image_name, tag=tag,
+                    force=force_tag_argument,
+                )
+            )
 
     def running_container_id(self):
         """ return id of last known container instance, or False otherwise"""
@@ -543,21 +557,21 @@ class DockerContainer(AbstractContainer):
     def logs(self, follow=False):
         MAX_LINES = 1000
         if not follow:
-            out = api_client.logs(container=self.running_container_name(), stream=False, tail=MAX_LINES)
+            out = DOCKER_API_CLIENT.logs(container=self.running_container_name(), stream=False, tail=MAX_LINES)
             lines = sum([1 for char in out if char == '\n'])
             if lines > MAX_LINES - 3:
                 print_warning("Output is truncated, printing only the last {} lines".format(MAX_LINES))
             sys.stdout.write(out)
         else:
             try:
-                for l in api_client.logs(container=self.running_container_name(), stream=True, timestamps=True, stdout=True, stderr=True, tail=MAX_LINES):
+                for l in DOCKER_API_CLIENT.logs(container=self.running_container_name(), stream=True, timestamps=True, stdout=True, stderr=True, tail=MAX_LINES):
                     sys.stdout.write(l)
             except KeyboardInterrupt:
                 sys.exit(0)
 
     def check_for_unmanaged_containers(self):
         """ warn if any containers not managed by kastenwesen are running from the same image """
-        running_containers = api_client.containers()
+        running_containers = DOCKER_API_CLIENT.containers()
         running_container_ids = [container['Id'] for container in running_containers]
         logging.debug("Running containers: %s", str(running_container_ids))
         config_container_ids = [
@@ -580,7 +594,7 @@ class DockerContainer(AbstractContainer):
         if not self.running_container_id():
             return False
         try:
-            status = api_client.inspect_container(self.running_container_id())
+            status = DOCKER_API_CLIENT.inspect_container(self.running_container_id())
             return status['State']['Running']
         except docker.errors.NotFound:
             return False
@@ -589,7 +603,7 @@ class DockerContainer(AbstractContainer):
         if not self.running_container_id():
             return None
         try:
-            status = api_client.inspect_container(self.running_container_id())
+            status = DOCKER_API_CLIENT.inspect_container(self.running_container_id())
             return DockerDatetime(status['State']['StartedAt']).seconds_to_now()
         except docker.errors.NotFound:
             return None
@@ -789,17 +803,17 @@ def cleanup_containers(min_age_days=0, simulate=False):
     # -> only delete containers known to this script? that would require logging all previous IDs
 
     # get all non-running containers
-    containers = api_client.containers(trunc=False, all=True)
+    containers = DOCKER_API_CLIENT.containers(trunc=False, all=True)
     config_container_ids = [
         c.running_container_id() for c in CONFIG_CONTAINERS
         if isinstance(c, DockerContainer)
     ]
     removed_containers = []
     for container in containers:
-        state = api_client.inspect_container(container['Id'])['State']
+        state = DOCKER_API_CLIENT.inspect_container(container['Id'])['State']
         if state['Running']:
             continue
-        date_finished = api_client.inspect_container(container['Id'])['State']['FinishedAt']
+        date_finished = DOCKER_API_CLIENT.inspect_container(container['Id'])['State']['FinishedAt']
         date_finished = DockerDatetime(date_finished)
         if date_finished:
             assert date_finished.to_datetime() > datetime.datetime(2002, 1, 1)
@@ -813,7 +827,7 @@ def cleanup_containers(min_age_days=0, simulate=False):
                 "parsed finishing time={}" \
                 .format(container,
                         date_created,
-                        api_client.inspect_container(container['Id'])['State'],
+                        DOCKER_API_CLIENT.inspect_container(container['Id'])['State'],
                         date_finished)
         if container['Id'] in config_container_ids:
             print_warning("Not removing stopped container {} because it is the last known instance".format(container['Names']))
@@ -834,19 +848,19 @@ def cleanup_images(min_age_days=0, simulate=False, simulated_deleted_containers=
     if not simulated_deleted_containers:
         simulated_deleted_containers = []
 
-    images = api_client.images(all=True)
+    images = DOCKER_API_CLIENT.images(all=True)
     # get all running and non-running containers
-    containers = api_client.containers(all=True, trunc=False)
+    containers = DOCKER_API_CLIENT.containers(all=True, trunc=False)
     # get the list of real ids -- image ids in .containers() are sometimes abbreviated
     used_image_ids = []
     for container in containers:
-        used_image_id = api_client.inspect_container(container['Id'])['Image']
+        used_image_id = DOCKER_API_CLIENT.inspect_container(container['Id'])['Image']
         assert used_image_id in [img['Id'] for img in images], "Image {img} does not exist, but is used by container {container}".format(img=used_image_id, container=container)
         if container['Id'] in simulated_deleted_containers:
             continue
         used_image_ids.append(used_image_id)
 
-    dangling_images = api_client.images(filters={"dangling": True})
+    dangling_images = DOCKER_API_CLIENT.images(filters={"dangling": True})
     for image in dangling_images:
         if image['RepoTags'] != [u'<none>:<none>']:
             # image is tagged, skip
@@ -1048,7 +1062,7 @@ if __name__ == "__main__":
     if not os.path.isfile("./kastenwesen_config.py") and os.path.isdir("/etc/kastenwesen"):
         os.chdir("/etc/kastenwesen/")
     # TODO hardcoded to the lower docker API version to run with ubuntu 14.04
-    api_client = docker.Client(base_url='unix://var/run/docker.sock', version='1.12')
+    DOCKER_API_CLIENT = docker.Client(base_url='unix://var/run/docker.sock', version='1.12')
     if not os.path.isfile("kastenwesen_config.py"):
         print_fatal("No 'kastenwesen_config.py' found in the current directory or in '{0}'".format(os.getcwd()))
     config_containers = []
