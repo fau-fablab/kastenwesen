@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+# Here are some UTF8 characters for finding encoding bugs: ÄÖÜäöüß ╰［°‿°］╯
+
 config_containers = []
 
 disable_auto_upgrade = True

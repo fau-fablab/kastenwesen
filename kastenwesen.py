@@ -1073,7 +1073,7 @@ if __name__ == "__main__":
     config_containers = []
     disable_auto_upgrade = False
     # set config_containers from conf file
-    with open("./kastenwesen_config.py") as f:
+    with open("./kastenwesen_config.py", 'rb') as f:
         code = compile(f.read(), "./kastenwesen_config.py", 'exec')
         exec(code, globals(), locals())
 
