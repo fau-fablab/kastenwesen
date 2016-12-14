@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
 # kastenwesen: a python tool for managing multiple docker containers
@@ -18,7 +18,6 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 
 """
 kastenwesen: a python tool for managing multiple docker containers
@@ -51,16 +50,18 @@ in non-interactive shells.
 If the containers argument is not given, the command refers to all containers in the config.
 """
 
-from __future__ import print_function
-import docker
+import os
 import sys
 import logging
-import requests
-import subprocess
-import socket
 import time
+import subprocess
 import datetime
+import socket
+from fcntl import flock, LOCK_EX, LOCK_NB
+from copy import copy
 import dateutil.parser
+import docker
+import requests
 from termcolor import colored, cprint
 import os
 from docopt import docopt
@@ -83,15 +84,6 @@ SELINUX_STATUS = None
 
 NAMESPACE = ''  # Namespace for containers and images. '' or '$namespace/'
 
-# workaround to always flush the output buffer
-real_print = print
-
-
-def print(s):
-    real_print(s)
-    sys.stderr.flush()
-    sys.stdout.flush()
-
 
 def exec_verbose(cmd, return_output=False):
     """
@@ -99,9 +91,9 @@ def exec_verbose(cmd, return_output=False):
 
     :param bool return_output: return output as string, don't print it to the terminal.
     """
-    print(os.getcwd() + "$ " + colored(cmd, attrs=['bold']))
+    print(os.getcwd() + "$ " + colored(cmd, attrs=['bold']), flush=True)
     if return_output:
-        return subprocess.check_output(cmd, shell=True)
+        return subprocess.check_output(cmd, shell=True).decode('utf8')
     else:
         subprocess.check_call(cmd, shell=True)
 
@@ -110,9 +102,11 @@ def print_success(text):
     """print positive information and success messages"""
     cprint(text, attrs=['bold'], color='green')
 
+
 def print_notice(text):
     """print information which is between good and bad, e.g. "container is still starting..." """
     cprint(text, attrs=['bold'], color='yellow')
+
 
 def print_warning(text):
     """print negative information, errors, "container stopped", ... """
@@ -139,10 +133,10 @@ def get_selinux_status():
         try:
             return subprocess.check_output(
                 'getenforce 2>/dev/null || echo "disabled"',
-                shell=True).strip().lower()
-        except subprocess.CalledProcessError as e:
+                shell=True).decode('utf8').strip().lower()
+        except subprocess.CalledProcessError as err:
             print_warning("Error while running 'getenforce' to get current SELinux status")
-            print(e)
+            logging.error(err)
             return 'disabled'
 
 
@@ -192,7 +186,7 @@ class TCPPortTest(AbstractTest):
         try:
             sock.settimeout(1)
             # send something
-            sock.send("hello\n")
+            sock.send(b'hello\n')
             # try to get a reply
             data = sock.recv(1)
             if not data:
@@ -218,7 +212,7 @@ class DockerShellTest(AbstractTest):
             ``hello | grep -q world``
             Will be interpreted by ``bash`` on the container.
         """
-        assert isinstance(shell_cmd, basestring)
+        assert isinstance(shell_cmd, str)
         self.shell_cmd = shell_cmd
 
     def run(self, container_instance):
@@ -382,10 +376,6 @@ class DockerDatetime(object):
         """ evaluate as logical ``False`` if the Docker API returns the pseudo-date ``0001-01-01T00:00:00Z``. """
         return bool(self.date)
 
-    def __nonzero__(self):
-        # python2 compatibility
-        return self.__bool__()
-
     def __str__(self):
         return str(self.date)
 
@@ -519,6 +509,7 @@ class DockerContainer(AbstractContainer):
         f.close()
 
     def stop(self):
+        """Stop the container."""
         running_id = self.running_container_name()
         print_bold("Stopping {name} container {container}".format(name=self.name, container=running_id))
         if running_id and self.is_running():
@@ -527,6 +518,7 @@ class DockerContainer(AbstractContainer):
             logging.info("no known instance running")
 
     def start(self):
+        """Start the container."""
         if self.is_running():
             raise Exception('container is already running')
         base_name = self.container_base_name()
@@ -561,11 +553,11 @@ class DockerContainer(AbstractContainer):
             lines = sum([1 for char in out if char == '\n'])
             if lines > MAX_LINES - 3:
                 print_warning("Output is truncated, printing only the last {} lines".format(MAX_LINES))
-            sys.stdout.write(out)
+            print(out.decode('utf8'))
         else:
             try:
                 for l in DOCKER_API_CLIENT.logs(container=self.running_container_name(), stream=True, timestamps=True, stdout=True, stderr=True, tail=MAX_LINES):
-                    sys.stdout.write(l)
+                    print(l.decode('utf8'), end='')
             except KeyboardInterrupt:
                 sys.exit(0)
 
@@ -590,6 +582,7 @@ class DockerContainer(AbstractContainer):
                     raise Exception("The container '{}', not managed by kastenwesen.py, is currently running from the same image '{}'. I am assuming this is not what you want. Please stop it yourself and restart it via kastenwesen. See the output of 'docker ps' for more info.".format(container['Id'], self.image_name))
 
     def is_running(self):
+        """Return True if this container is running."""
         self.check_for_unmanaged_containers()
         if not self.running_container_id():
             return False
@@ -600,6 +593,12 @@ class DockerContainer(AbstractContainer):
             return False
 
     def time_running(self):
+        """
+        Time in seconds since last start/restart, or `None` if unsupported or temporarily not available.
+        Test failures will be ignored if this runtime is shorter than a startup gracetime.
+
+        :rtype: None | float
+        """
         if not self.running_container_id():
             return None
         try:
@@ -609,21 +608,27 @@ class DockerContainer(AbstractContainer):
             return None
 
     def needs_package_updates(self):
+        """
+        Run a check for package updates
+
+        :return: ``True`` if any packages could be updated
+        :rtype: bool
+        """
         kastenwesen_path = os.path.dirname(os.path.realpath(__file__))
         # run check_for_updates.py in a new container instance.
 
         # the temporary label is set so that check_for_unmanaged_containers()
         # does not complain about this "unmanaged" instance
         cmd = "docker run --label de.fau.fablab.kastenwesen.temporary=True " \
-              "--rm --user=root " \
-              "-v {kastenwesen_path}/helper/:/usr/local/kastenwesen_tmp/:ro{vol_opts} " \
-              "{image} " \
-              "/usr/local/kastenwesen_tmp/check_for_updates.py" \
-              .format(
-              image=self.image_name,
-              vol_opts=',Z' if get_selinux_status() == 'enforcing' else '',
-              kastenwesen_path=kastenwesen_path
-              )
+            "--rm --user=root " \
+            "-v {kastenwesen_path}/helper/:/usr/local/kastenwesen_tmp/:ro{vol_opts} " \
+            "{image} " \
+            "/usr/local/kastenwesen_tmp/python-wrapper.sh " \
+            "/usr/local/kastenwesen_tmp/check_for_updates.py".format(
+                image=self.image_name,
+                vol_opts=',Z' if get_selinux_status() == 'enforcing' else '',
+                kastenwesen_path=kastenwesen_path
+            )
         updates = exec_verbose(cmd, return_output=True)
         if updates:
             print_warning("Container {} has outdated packages: {}".format(self.name, updates))
@@ -862,7 +867,7 @@ def cleanup_images(min_age_days=0, simulate=False, simulated_deleted_containers=
 
     dangling_images = DOCKER_API_CLIENT.images(filters={"dangling": True})
     for image in dangling_images:
-        if image['RepoTags'] != [u'<none>:<none>']:
+        if image['RepoTags'] != ['<none>:<none>']:
             # image is tagged, skip
             raise Exception("this should not happen, as we filtered for dangling images only")
         if image['Id'] in used_image_ids:
@@ -907,7 +912,7 @@ def check_config(containers):
 
 
 def query_yes_no(question, default="yes"):
-    """Ask a yes/no question via raw_input() and return their answer.
+    """Ask a yes/no question via input() and return their answer.
 
     "question" is a string that is presented to the user.
     "default" is the presumed answer if the user just hits <Enter>.
@@ -930,15 +935,13 @@ def query_yes_no(question, default="yes"):
         raise ValueError("invalid default answer: '%s'" % default)
 
     while True:
-        sys.stdout.write(question + prompt)
-        choice = raw_input().lower()
+        choice = input(question + prompt).lower()
         if default is not None and choice == '':
             return valid[default]
         elif choice in valid:
             return valid[choice]
         else:
-            sys.stdout.write("Please respond with 'yes' or 'no' "
-                             "(or 'y' or 'n').\n")
+            print("Please respond with 'yes' or 'no' (or 'y' or 'n').")
 
 
 def main():
@@ -964,8 +967,8 @@ def main():
         # Lock against concurrent use, except for readonly operations
         try:
             pid.lock()
-        except AlreadyRunning, e:
-            print_fatal(e.message)
+        except AlreadyRunning as e:
+            print_fatal(str(e))
     else:
         # readonly operations - print a warning if lockfile is still valid,
         # but continue nevertheless
@@ -1061,15 +1064,21 @@ if __name__ == "__main__":
     # get config from current dir, or from /etc/kastenwesen
     if not os.path.isfile("./kastenwesen_config.py") and os.path.isdir("/etc/kastenwesen"):
         os.chdir("/etc/kastenwesen/")
+
     # TODO hardcoded to the lower docker API version to run with ubuntu 14.04
     DOCKER_API_CLIENT = docker.Client(base_url='unix://var/run/docker.sock', version='1.12')
     if not os.path.isfile("kastenwesen_config.py"):
         print_fatal("No 'kastenwesen_config.py' found in the current directory or in '{0}'".format(os.getcwd()))
+
     config_containers = []
     disable_auto_upgrade = False
     # set config_containers from conf file
-    execfile('kastenwesen_config.py')
+    with open("./kastenwesen_config.py") as f:
+        code = compile(f.read(), "./kastenwesen_config.py", 'exec')
+        exec(code, globals(), locals())
+
     CONFIG_CONTAINERS = config_containers
     if get_selinux_status() == 'enforcing':
         print_bold("SELinux status is 'enforcing'")
+
     main()

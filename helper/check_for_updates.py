@@ -1,7 +1,9 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 """
 Check if there are updates using the systems default package manager
+
+Note: this script should be compatible to python2 and 3.
 """
 
 from __future__ import print_function

@@ -1,9 +1,14 @@
 sudo: required
 
 language: python
+python:
+  - "3.4"  # python3 on ubuntu 14.04
 
 services:
-    - docker
+  - docker
+
+install:
+  - pip install -r requirements.txt
 
 script:
-    - ./example-config/run_tests.py
+  - ./example-config/run_tests.py
