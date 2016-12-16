@@ -7,4 +7,4 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/kastenwes
 37  3  *  *  *  root    kastenwesen check-for-updates --auto-upgrade 2>&1 1>/dev/null | sed -r 's/\x1b[\[0-9;]+m//g'
 
 # 4:42: clean old containers
-42  4  *  *  *  root    kastenwesen cleanup
+42  4  *  *  *  root    kastenwesen cleanup 1>/dev/null
