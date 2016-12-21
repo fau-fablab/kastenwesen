@@ -202,7 +202,7 @@ class TCPPortTest(AbstractTest):
 
 
 class DockerShellTest(AbstractTest):
-    def __init__(self, shell_cmd):
+    def __init__(self, shell_cmd, timeout=TCP_TIMEOUT):
         """
         Test which runs a shell command with ``docker exec`` and tests for return value equal to zero.
         Only supported for docker containers.
@@ -214,6 +214,7 @@ class DockerShellTest(AbstractTest):
         """
         assert isinstance(shell_cmd, str)
         self.shell_cmd = shell_cmd
+        self.timeout = timeout
 
     def run(self, container_instance):
         """
@@ -228,11 +229,17 @@ class DockerShellTest(AbstractTest):
         cmd = ["docker", "exec", container_instance.running_container_name(),
                'bash', '-c', self.shell_cmd]
         try:
-            subprocess.check_call(cmd)
-        except subprocess.CalledProcessError as e:
+            subprocess.check_call(cmd, timeout=self.timeout)
+        except subprocess.CalledProcessError as err:
             logging.warning(
                 "Test with shell command '%s' failed with returncode %s",
-                self.shell_cmd, e.returncode,
+                self.shell_cmd, err.returncode,
+            )
+            return False
+        except subprocess.TimeoutExpired as err:
+            logging.warning(
+                "Test with shell command '%s' timed out after %d seconds",
+                self.shell_cmd, err.timeout,
             )
             return False
         return True
