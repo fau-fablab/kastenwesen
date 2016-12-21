@@ -639,6 +639,7 @@ class DockerContainer(AbstractContainer):
         """
         kastenwesen_path = os.path.dirname(os.path.realpath(__file__))
         base_name = self.container_base_name()
+        new_name = base_name + '-check-for-updates' + datetime.datetime.now().strftime("-%Y-%m-%d_%H_%M_%S")
         # run check_for_updates.py in a new container instance.
 
         # the temporary label is set so that check_for_unmanaged_containers()
@@ -653,7 +654,7 @@ class DockerContainer(AbstractContainer):
             " {image_name}" \
             " /usr/local/kastenwesen_tmp/python-wrapper.sh" \
             " /usr/local/kastenwesen_tmp/check_for_updates.py".format(
-                new_name = base_name + '-check-for-updates',
+                new_name = new_name,
                 vol_opts=',Z' if get_selinux_status() == 'enforcing' else '',
                 kastenwesen_path=kastenwesen_path,
                 image_name=self.image_name,
@@ -679,6 +680,7 @@ class DockerContainer(AbstractContainer):
             # docker run ... to launch new instance
             print("Starting a new container instance with an interactive shell:")
             base_name = self.container_base_name()
+            new_name = base_name + '-tmp' + datetime.datetime.now().strftime("-%Y-%m-%d_%H_%M_%S")
             # the temporary label is set so that check_for_unmanaged_containers()
             # does not complain about this "unmanaged" instance
             cmd = "docker run --rm -it" \
@@ -686,7 +688,7 @@ class DockerContainer(AbstractContainer):
                 " --label de.fau.fablab.kastenwesen.temporary=True" \
                 " --name={new_name} {docker_options}" \
                 " {image_name} bash".format(
-                    new_name = base_name + '-tmp',
+                    new_name = new_name,
                     docker_options=self._get_docker_options(),
                     image_name=self.image_name,
                 )
