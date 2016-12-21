@@ -515,6 +515,23 @@ class DockerContainer(AbstractContainer):
         f.write(new_id)
         f.close()
 
+    def _get_docker_options(self):
+        """Get all docker additional options like --link or custom options."""
+        docker_options = ""
+        for linked_container in self.links:
+            if not linked_container.is_running():
+                # linked container isn't running. This will only happen if startup of one container fails.
+                print_warning(
+                    "linked container {} is not running - container {} "
+                    "will be missing this link until being restarted!"
+                    .format(linked_container.name, self.name)
+                )
+                continue
+            docker_options += "--link={name}:{alias} ".format(name=linked_container.running_container_name(), alias=linked_container.name)
+        docker_options += self.docker_options
+        return docker_options
+
+
     def stop(self):
         """Stop the container."""
         running_id = self.running_container_name()
@@ -537,20 +554,19 @@ class DockerContainer(AbstractContainer):
             pass
         # names cannot be reused :( so we need to generate a new one each time
         new_name = base_name + datetime.datetime.now().strftime("-%Y-%m-%d_%H_%M_%S")
-        docker_options = ""
-        for linked_container in self.links:
-            if not linked_container.is_running():
-                # linked container isn't running. This will only happen if startup of one container fails.
-                print_warning("linked container {} is not running - container {} "
-                              "will be missing this link until being restarted!"
-                              .format(linked_container.name, self.name))
-                continue
-            docker_options += "--link={name}:{alias} ".format(name=linked_container.running_container_name(), alias=linked_container.name)
-        docker_options += self.docker_options
-        cmdline = "docker run -d --memory=2g  --cidfile={container_id_file} --name={new_name} {docker_opts} {image_name} ".format(container_id_file=container_id_file, new_name=new_name, docker_opts=docker_options, image_name=self.image_name)
+        cmd = "docker run -d" \
+            " --dns-search=." \
+            " --memory=2g  --cidfile={container_id_file}" \
+            " --name={new_name} {docker_options}" \
+            " {image_name} ".format(
+                container_id_file=container_id_file,
+                new_name=new_name,
+                docker_options=self._get_docker_options(),
+                image_name=self.image_name,
+            )
         print_bold("Starting container {}".format(new_name))
-        logging.info("Starting %s container: %s", self.name, cmdline)
-        exec_verbose(cmdline)
+        logging.info("Starting %s container: %s", self.name, cmd)
+        exec_verbose(cmd)
         self._set_running_container_name(new_name)
 
     def logs(self, follow=False):
@@ -622,19 +638,25 @@ class DockerContainer(AbstractContainer):
         :rtype: bool
         """
         kastenwesen_path = os.path.dirname(os.path.realpath(__file__))
+        base_name = self.container_base_name()
         # run check_for_updates.py in a new container instance.
 
         # the temporary label is set so that check_for_unmanaged_containers()
         # does not complain about this "unmanaged" instance
-        cmd = "docker run --label de.fau.fablab.kastenwesen.temporary=True " \
-            "--rm --user=root " \
-            "-v {kastenwesen_path}/helper/:/usr/local/kastenwesen_tmp/:ro{vol_opts} " \
-            "{image} " \
-            "/usr/local/kastenwesen_tmp/python-wrapper.sh " \
-            "/usr/local/kastenwesen_tmp/check_for_updates.py".format(
-                image=self.image_name,
+
+        cmd = "docker run --rm" \
+            " --dns-search=." \
+            " --label de.fau.fablab.kastenwesen.temporary=True" \
+            " --user=root" \
+            " -v {kastenwesen_path}/helper/:/usr/local/kastenwesen_tmp/:ro{vol_opts}" \
+            " --name={new_name}" \
+            " {image_name}" \
+            " /usr/local/kastenwesen_tmp/python-wrapper.sh" \
+            " /usr/local/kastenwesen_tmp/check_for_updates.py".format(
+                new_name = base_name + '-check-for-updates',
                 vol_opts=',Z' if get_selinux_status() == 'enforcing' else '',
-                kastenwesen_path=kastenwesen_path
+                kastenwesen_path=kastenwesen_path,
+                image_name=self.image_name,
             )
         updates = exec_verbose(cmd, return_output=True)
         if updates:
@@ -656,9 +678,18 @@ class DockerContainer(AbstractContainer):
         if new_instance:
             # docker run ... to launch new instance
             print("Starting a new container instance with an interactive shell:")
+            base_name = self.container_base_name()
             # the temporary label is set so that check_for_unmanaged_containers()
             # does not complain about this "unmanaged" instance
-            cmd = "docker run --label de.fau.fablab.kastenwesen.temporary=True -it {container} bash".format(container=self.name)
+            cmd = "docker run --rm -it" \
+                " --dns-search=." \
+                " --label de.fau.fablab.kastenwesen.temporary=True" \
+                " --name={new_name} {docker_options}" \
+                " {image_name} bash".format(
+                    new_name = base_name + '-tmp',
+                    docker_options=self._get_docker_options(),
+                    image_name=self.image_name,
+                )
         else:
             # docker exec ... in running instance
             print("Starting a shell inside the running instance.")
