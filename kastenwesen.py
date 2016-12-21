@@ -954,10 +954,9 @@ def query_yes_no(question, default="yes"):
 def main():
     arguments = docopt(__doc__, version='')
 
-    loglevel = logging.INFO
-    if "-v" in arguments:
-        loglevel = logging.DEBUG
-    logging.basicConfig(level=loglevel)
+    logging.basicConfig(
+        level=logging.DEBUG if '-v' in arguments else logging.INFO
+    )
 
     # CONFIG
     # A list of containers, ordered by dependency (e.g. database -> web application -> web application client, ...)
@@ -1085,7 +1084,4 @@ if __name__ == "__main__":
         exec(code, globals(), locals())
 
     CONFIG_CONTAINERS = config_containers
-    if get_selinux_status() == 'enforcing':
-        print_bold("SELinux status is 'enforcing'")
-
     main()
