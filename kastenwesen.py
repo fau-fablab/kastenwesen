@@ -996,7 +996,9 @@ def main():
     # an image may only depend on images *before* it in the list
     # linking is also only allowed to containers *before* it in the list.
 
-    read_only_args = ["status", "log"]
+    # read only args: "passive" actions which do not change containers
+    # note: a running shell will crash on rebuilds of the same container!
+    read_only_args = ["status", "log", "shell"]
     lock_needed = not sum([arguments[key] for key in read_only_args])
     if arguments["check-for-updates"] and arguments["--auto-upgrade"]:
         lock_needed = True
