@@ -1032,7 +1032,15 @@ def main():
             c for c in CONFIG_CONTAINERS if c.name in arg_containers_with_ns
         ]
         if len(given_containers) != len(arguments["<container>"]):
-            raise Exception("Unknown container name(s) given on commandline")
+            config_container_names = [c.name for c in CONFIG_CONTAINERS]
+            unknown_containers = [
+                c for c in arg_containers_with_ns
+                if c not in config_container_names
+            ]
+            raise Exception(
+                "Unknown container name(s) given on commandline: " +
+                ', '.join(unknown_containers)
+            )
 
     if arguments["rebuild"]:
         affected_containers = rebuild_many(given_containers, ignore_cache=bool(arguments["--no-cache"]))
