@@ -57,13 +57,13 @@ import time
 import subprocess
 import datetime
 import socket
+import re
 from fcntl import flock, LOCK_EX, LOCK_NB
 from copy import copy
 import dateutil.parser
 import docker
 import requests
 from termcolor import colored, cprint
-import os
 from docopt import docopt
 from copy import copy
 from pidfilemanager import PidFileManager, AlreadyRunning
@@ -645,6 +645,12 @@ class DockerContainer(AbstractContainer):
         # the temporary label is set so that check_for_unmanaged_containers()
         # does not complain about this "unmanaged" instance
 
+        def strip_port_args(docker_options):
+            """Return docker_options without ports to bind."""
+            return re.sub(
+                r'\s*-(-?)p(ublish)?[\s=]*\d[\d:\-\.]+\s*', ' ', docker_options,
+            )
+
         cmd = "docker run --rm" \
             " --dns-search=." \
             " --label de.fau.fablab.kastenwesen.temporary=True" \
@@ -655,7 +661,7 @@ class DockerContainer(AbstractContainer):
             " /usr/local/kastenwesen_tmp/python-wrapper.sh" \
             " /usr/local/kastenwesen_tmp/check_for_updates.py".format(
                 new_name = new_name,
-                docker_options=self._get_docker_options(),
+                docker_options=strip_port_args(self._get_docker_options()),
                 vol_opts=',Z' if get_selinux_status() == 'enforcing' else '',
                 kastenwesen_path=kastenwesen_path,
                 image_name=self.image_name,
