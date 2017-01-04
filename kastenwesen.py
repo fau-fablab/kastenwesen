@@ -650,11 +650,12 @@ class DockerContainer(AbstractContainer):
             " --label de.fau.fablab.kastenwesen.temporary=True" \
             " --user=root" \
             " -v {kastenwesen_path}/helper/:/usr/local/kastenwesen_tmp/:ro{vol_opts}" \
-            " --name={new_name}" \
+            " --name={new_name} {docker_options}" \
             " {image_name}" \
             " /usr/local/kastenwesen_tmp/python-wrapper.sh" \
             " /usr/local/kastenwesen_tmp/check_for_updates.py".format(
                 new_name = new_name,
+                docker_options=self._get_docker_options(),
                 vol_opts=',Z' if get_selinux_status() == 'enforcing' else '',
                 kastenwesen_path=kastenwesen_path,
                 image_name=self.image_name,
