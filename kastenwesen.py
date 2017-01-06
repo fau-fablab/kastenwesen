@@ -469,6 +469,9 @@ class DockerContainer(AbstractContainer):
         """Return the image name without namespace."""
         return self.name[len(NAMESPACE):]
 
+    def __repr__(self):
+        return '"name": "{name}", "image": "{image}"'.format(name=self.name, image=self.image_name)
+
     def rebuild(self, ignore_cache=False):
         """ rebuild the container image """
         # self.is_running() is called for the check against manually started containers from this image.
