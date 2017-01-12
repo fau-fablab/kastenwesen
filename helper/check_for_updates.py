@@ -8,18 +8,25 @@ Note: this script should be compatible to python2 and 3.
 
 from __future__ import print_function
 import sys
+import os
+import subprocess
 
-DISTRO_PM = None
+EXTRA_UPDATE_CHECK_SCRIPT = '/check_extra_updates.sh'
+
+PACKAGE_MANAGERS = []
 try:
     import apt
-    DISTRO_PM = 'apt'
+    PACKAGE_MANAGERS.append('apt')
 except ImportError:
     pass
 try:
     import yum
-    DISTRO_PM = 'yum'
+    PACKAGE_MANAGERS.append('yum')
 except ImportError:
     pass
+if os.path.isfile(EXTRA_UPDATE_CHECK_SCRIPT):
+    PACKAGE_MANAGERS.append('script')
+
 
 
 def _print_error(msg):
@@ -61,20 +68,29 @@ def yum_updates():
     return [package.name for package in available_updates]
 
 
-def main(distro_pm):
-    """
-    check for updates with distro_pm and print them to stdout, errors to stderr
-    """
-    if distro_pm == 'apt':
-        available_updates = apt_updates()
-    elif distro_pm == 'yum':
-        available_updates = yum_updates()
-    else:
+def script_updates():
+    """Run a custom script to check for updates."""
+    output = subprocess.check_output(EXTRA_UPDATE_CHECK_SCRIPT).decode('utf8')
+    return [line.strip() for line in output.splitlines() if line.strip()]
+
+
+def main(package_managers):
+    """Check for updates and print them to stdout, errors to stderr."""
+    if not package_managers:
         _print_error("[!] This distro is not supported by check_for_update.")
+
+    available_updates = []
+    if 'apt' in package_managers:
+        available_updates += apt_updates()
+    if 'yum' in package_managers:
+        available_updates += yum_updates()
+    if 'script' in package_managers:
+        available_updates += script_updates()
+
     if available_updates:
         print(" ".join(available_updates))
     exit(0)
 
 
 if __name__ == "__main__":
-    main(DISTRO_PM)
+    main(PACKAGE_MANAGERS)

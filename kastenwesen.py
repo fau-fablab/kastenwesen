@@ -57,13 +57,13 @@ import time
 import subprocess
 import datetime
 import socket
+import re
 from fcntl import flock, LOCK_EX, LOCK_NB
 from copy import copy
 import dateutil.parser
 import docker
 import requests
 from termcolor import colored, cprint
-import os
 from docopt import docopt
 from copy import copy
 from pidfilemanager import PidFileManager, AlreadyRunning
@@ -638,27 +638,43 @@ class DockerContainer(AbstractContainer):
         :rtype: bool
         """
         kastenwesen_path = os.path.dirname(os.path.realpath(__file__))
-        base_name = self.container_base_name()
-        new_name = base_name + '-check-for-updates' + datetime.datetime.now().strftime("-%Y-%m-%d_%H_%M_%S")
-        # run check_for_updates.py in a new container instance.
 
-        # the temporary label is set so that check_for_unmanaged_containers()
-        # does not complain about this "unmanaged" instance
-
-        cmd = "docker run --rm" \
-            " --dns-search=." \
-            " --label de.fau.fablab.kastenwesen.temporary=True" \
-            " --user=root" \
-            " -v {kastenwesen_path}/helper/:/usr/local/kastenwesen_tmp/:ro{vol_opts}" \
-            " --name={new_name}" \
-            " {image_name}" \
-            " /usr/local/kastenwesen_tmp/python-wrapper.sh" \
-            " /usr/local/kastenwesen_tmp/check_for_updates.py".format(
-                new_name = new_name,
-                vol_opts=',Z' if get_selinux_status() == 'enforcing' else '',
-                kastenwesen_path=kastenwesen_path,
-                image_name=self.image_name,
+        if self.is_running():
+            exec_verbose(
+                "docker cp {kastenwesen_path}/helper/ {container}:/usr/local/".format(
+                    container=self.running_container_name(),
+                    kastenwesen_path=kastenwesen_path,
+                )
             )
+            cmd = "docker exec -it --user=root {container}" \
+                " /usr/local/helper/python-wrapper.sh" \
+                " /usr/local/helper/check_for_updates.py".format(
+                    container=self.running_container_name(),
+                )
+        else:
+            base_name = self.container_base_name()
+            new_name = base_name + '-check-for-updates' + datetime.datetime.now().strftime("-%Y-%m-%d_%H_%M_%S")
+            # run check_for_updates.py in a new container instance.
+
+            # the temporary label is set so that check_for_unmanaged_containers()
+            # does not complain about this "unmanaged" instance
+
+            cmd = "docker run --rm" \
+                " --dns-search=." \
+                " --label de.fau.fablab.kastenwesen.temporary=True" \
+                " --user=root" \
+                " -v {kastenwesen_path}/helper/:/usr/local/kastenwesen_tmp/:ro{vol_opts}" \
+                " --name={new_name} {docker_options}" \
+                " {image_name}" \
+                " /usr/local/kastenwesen_tmp/python-wrapper.sh" \
+                " /usr/local/kastenwesen_tmp/check_for_updates.py".format(
+                    new_name = new_name,
+                    docker_options=self._get_docker_options(),
+                    vol_opts=',Z' if get_selinux_status() == 'enforcing' else '',
+                    kastenwesen_path=kastenwesen_path,
+                    image_name=self.image_name,
+                )
+
         updates = exec_verbose(cmd, return_output=True)
         if updates:
             print_warning("Container {} has outdated packages: {}".format(self.name, updates))
