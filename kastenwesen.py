@@ -84,6 +84,11 @@ SELINUX_STATUS = None
 
 NAMESPACE = ''  # Namespace for containers and images. '' or '$namespace/'
 
+# status files
+STATUS_FILES_DIR = '/var/lib/kastenwesen/'
+RUNNING_CONTAINER_NAME_FILE = STATUS_FILES_DIR + '%(name)s.running_container_name'
+RUNNING_CONTAINER_ID_FILE = STATUS_FILES_DIR + '%(name)s.running_container_id'
+
 
 def exec_verbose(cmd, return_output=False):
     """
@@ -493,16 +498,18 @@ class DockerContainer(AbstractContainer):
         """ return id of last known container instance, or False otherwise"""
         # the running id file is written by `docker run --cidfile <file>` in .start()
         try:
-            f = open(self.container_base_name() + '.running_container_id', 'r')
-            return f.read()
+            return open(
+                RUNNING_CONTAINER_NAME_FILE % {'name': self.container_base_name()}, 'r'
+            ).read()
         except IOError:
             return False
 
     def running_container_name(self):
         """ return name of last known container instance, or False otherwise"""
         try:
-            f = open(self.container_base_name() + '.running_container_name', 'r')
-            return f.read()
+            return open(
+                RUNNING_CONTAINER_NAME_FILE % {'name': self.container_base_name()}, 'r'
+            ).read()
         except IOError:
             return False
 
@@ -511,9 +518,7 @@ class DockerContainer(AbstractContainer):
         base_name = self.container_base_name()
         logging.debug("previous '%s' container name was: %s", base_name, previous_id)
         logging.debug("new '%s' container name is now: %s", base_name, new_id)
-        f = open(base_name + '.running_container_name', 'w')
-        f.write(new_id)
-        f.close()
+        open(RUNNING_CONTAINER_NAME_FILE % {'name': base_name}, 'w').write(new_id)
 
     def _get_docker_options(self):
         """Get all docker additional options like --link or custom options."""
@@ -546,7 +551,7 @@ class DockerContainer(AbstractContainer):
         if self.is_running():
             raise Exception('container is already running')
         base_name = self.container_base_name()
-        container_id_file = "{}.running_container_id".format(base_name)
+        container_id_file = RUNNING_CONTAINER_ID_FILE % {'name': base_name}
         # move container id file out of the way if it exists - otherwise docker complains at startup
         try:
             os.rename(container_id_file, container_id_file + "_previous")
@@ -1129,6 +1134,8 @@ if __name__ == "__main__":
     # get config from current dir, or from /etc/kastenwesen
     if not os.path.isfile("./kastenwesen_config.py") and os.path.isdir("/etc/kastenwesen"):
         os.chdir("/etc/kastenwesen/")
+
+    os.makedirs(STATUS_FILES_DIR, mode=0o755, exist_ok=True)
 
     # TODO hardcoded to the lower docker API version to run with ubuntu 14.04
     DOCKER_API_CLIENT = docker.Client(base_url='unix://var/run/docker.sock', version='1.12')
