@@ -646,7 +646,7 @@ class DockerContainer(AbstractContainer):
                     kastenwesen_path=kastenwesen_path,
                 )
             )
-            cmd = "docker exec -it --user=root {container}" \
+            cmd = "docker exec --user=root {container}" \
                 " /usr/local/helper/python-wrapper.sh" \
                 " /usr/local/helper/check_for_updates.py".format(
                     container=self.running_container_name(),
