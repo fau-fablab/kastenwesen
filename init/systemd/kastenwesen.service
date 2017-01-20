@@ -1,6 +1,7 @@
 [Unit]
 Description=Kastenwesen docker management
 Requires=docker.service
+After=docker.service
 ConditionPathExists=/etc/kastenwesen/kastenwesen_config.py
 
 [Service]
