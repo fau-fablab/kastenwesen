@@ -60,8 +60,8 @@ import subprocess
 import sys
 import time
 from copy import copy
+from collections import namedtuple
 from distutils.version import LooseVersion
-from enum import IntEnum
 from fcntl import LOCK_EX, LOCK_NB, flock
 
 import dateutil.parser
@@ -87,10 +87,10 @@ SELINUX_STATUS = None
 
 NAMESPACE = ''  # Namespace for containers and images. '' or '$namespace/'
 
-class ContainerStatus(IntEnum):
-    OKAY = 0
-    FAILED = 1
-    STARTING = 2
+class ContainerStatus(object):
+    OKAY = "OKAY"
+    FAILED = "FAILED"
+    STARTING = "STARTING"
 
 
 def exec_verbose(cmd, return_output=False):
@@ -254,11 +254,11 @@ class DockerShellTest(AbstractTest):
 
 
 class AbstractContainer(object):
-    def __init__(self, name, time_sleep_before_test=0.5, only_build=False, startup_gracetime=None):
+    def __init__(self, name, sleep_before_test=0.5, only_build=False, startup_gracetime=None):
         self.name = NAMESPACE + name
         self.tests = []
         self.links = []
-        self.time_sleep_before_test = time_sleep_before_test
+        self.sleep_before_test = sleep_before_test
         if startup_gracetime is None:
             startup_gracetime = DEFAULT_STARTUP_GRACETIME
         self.startup_gracetime = startup_gracetime
@@ -300,7 +300,7 @@ class AbstractContainer(object):
 
         # check that the container is running
         if sleep_before:
-            time.sleep(self.time_sleep_before_test)
+            time.sleep(self.sleep_before_test)
         return success
 
     def get_status(self, sleep_before=True):
@@ -408,11 +408,11 @@ class DockerDatetime(object):
 
 
 class DockerContainer(AbstractContainer):
-    def __init__(self, name, path, docker_options="", time_sleep_before_test=0.5, only_build=False, alias_tags=None, startup_gracetime=None):
+    def __init__(self, name, path, docker_options="", sleep_before_test=0.5, only_build=False, alias_tags=None, startup_gracetime=None):
         """
         :param docker_options: commandline options to 'docker run'
         """
-        AbstractContainer.__init__(self, name, time_sleep_before_test,
+        AbstractContainer.__init__(self, name, sleep_before_test,
                                    only_build, startup_gracetime)
         self.image_name = self.name + ':latest'
         self.path = path
@@ -935,47 +935,63 @@ def cleanup_images(min_age_days=0, simulate=False, simulated_deleted_containers=
 
 def get_status(given_containers):
     """
-    Return a list of tuples containing the status of given_containers.
+    Return a list of named tuples containing the status of given_containers.
 
     >>> get_status(...)
-    [(container_name, (container_status, msg)), ...]
+    [(container_name, status, msg), ...]
     """
-    return sorted(tuple(
-        (container.name, container.get_status(sleep_before=False))
+    StatusReport = namedtuple('StatusReport', ['container_name', 'status', 'msg'])
+    return sorted([
+        StatusReport(container.name, *container.get_status(sleep_before=False))
         for container in given_containers
-    ))
+    ])
 
 
-def print_status_and_exit(given_containers, other_instance_running=False):
+def print_status_and_exit(given_containers, other_instance_running=False, out_format='ascii'):
     """
     Print container status to stdout and exit.
 
-    Exit status: Count of failed containers.
+    out_format: 'ascii' for human readable text, 'json' for json on stdout
+    Exit status:
+        - 0: Everything ok
+        - 1: There are failed containers
+        - 42: There are failed containers but an other instance is running,
+        too, which may cause the failures
     """
-    failed_containers = 0
+    status_report_list = get_status(given_containers)
+    failed_containers = any((
+        1 if status_report.status == ContainerStatus.FAILED else 0
+        for status_report in status_report_list
+    ))
 
-    for container_name, status_report in get_status(given_containers):
-        container_status, msg = status_report
-        if container_status == ContainerStatus.OKAY:
-            print_success('[ ok ] %s: %s' % (container_name, msg))
-        elif container_status == ContainerStatus.STARTING:
-            print_notice('[ ok ] %s: %s' % (container_name, msg))
-        elif container_status == ContainerStatus.FAILED:
-            print_warning('[fail] %s: %s' % (container_name, msg))
-            failed_containers += 1
-        else:
-            raise ValueError('Invalid status %s' % container_status)
+    if out_format == 'ascii':
+        for container_name, status, msg in status_report_list:
+            if status == ContainerStatus.OKAY:
+                print_success('[ ok ] %s: %s' % (container_name, msg))
+            elif status == ContainerStatus.STARTING:
+                print_notice('[ ok ] %s: %s' % (container_name, msg))
+            elif status == ContainerStatus.FAILED:
+                print_warning('[fail] %s: %s' % (container_name, msg))
+            else:
+                raise ValueError('Invalid status %s' % container_status)
+    elif out_format == 'json':
+        print(json.dumps(status_report_list))
+    else:
+        raise ValueError('Invalid format %s' % out_format)
 
     if failed_containers:
         if other_instance_running:
-            print_notice("Errors were ignored "
-                         "because another kastenwesen instance is running.")
-            sys.exit(0)
+            if out_format == 'ascii':
+                print_notice("Errors were ignored "
+                             "because another kastenwesen instance is running.")
+            sys.exit(42)
         else:
-            print_fatal("Some containers are not working!")
+            if out_format == 'ascii':
+                print_fatal("Some containers are not working!")
 
-    sys.exit(failed_containers)
+            sys.exit(1)
 
+    sys.exit(0)
 
 
 def check_config(containers):
@@ -1036,7 +1052,7 @@ def main():
     # read only args: "passive" actions which do not change containers
     # note: a running shell will crash on rebuilds of the same container!
     read_only_args = ["status", "log", "shell"]
-    lock_needed = not sum([arguments[key] for key in read_only_args])
+    lock_needed = not any([arguments[key] for key in read_only_args])
     if arguments["check-for-updates"] and arguments["--auto-upgrade"]:
         lock_needed = True
     pid = PidFileManager("/var/lock/kastenwesen")
@@ -1088,10 +1104,11 @@ def main():
         time.sleep(DEFAULT_STARTUP_GRACETIME)
         print_status_and_exit(given_containers)
     elif arguments["status"]:
-        if arguments['--cron']:
-            print(json.dumps(get_status(given_containers)))
-        else:
-            print_status_and_exit(given_containers, other_instance_running)
+        print_status_and_exit(
+            given_containers,
+            other_instance_running,
+            out_format='json' if arguments['--cron'] else 'ascii',
+        )
     elif arguments["start"]:
         restart_many(container for container in given_containers
                      if not (container.is_running() or container.only_build))

@@ -31,7 +31,7 @@ config_containers.append(my_linux_base)
 # ===================================== #
 # A web server listening on port 80     #
 #########################################
-web = DockerContainer(name="webserver", path="./webserver/", time_sleep_before_test=2)
+web = DockerContainer(name="webserver", path="./webserver/", sleep_before_test=2)
 web.add_port(host_port=80, container_port=80)
 web.add_volume(host_path=os.getcwd() + "/webserver/webroot",
                container_path="/var/www", readonly=True)
