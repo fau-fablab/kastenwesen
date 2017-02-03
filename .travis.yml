@@ -7,6 +7,11 @@ python:
 services:
   - docker
 
+before_install:
+  - sudo mkdir -p /var/lib/kastenwesen/
+  - sudo chown -R root:docker /var/lib/kastenwesen/
+  - sudo chmod -R g+rwX /var/lib/kastenwesen/
+
 install:
   - pip install -r requirements.txt
 
