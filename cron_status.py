@@ -167,21 +167,43 @@ def detect_flapping_and_changes(status_history_list):
     current_status = []
     changes_to_report = False
     for container_name, report in status_history_list[0].items():
-        overall_status = ContainerStatus.UNKNOWN
-        for entry in status_history_list[:-1]:
-            entry_status = entry.get(container_name, (ContainerStatus.UNKNOWN))[0]
-            if overall_status == ContainerStatus.UNKNOWN:
-                overall_status = entry_status
-            elif overall_status != entry_status:
-                overall_status = ContainerStatus.FLAPPING
+        # get known history of this container
+        status_history = []
+        _last_status = ContainerStatus.STARTING
+        for entry in status_history_list:
+            if container_name in entry:
+                status = entry[container_name][0]
+                # strip out STARTING (starting is so good as its result)
+                if status == ContainerStatus.STARTING:
+                    status = _last_status
 
-        # we want report a change for this container if the status is failed or
-        # okay (not unknown, flapping, starting) and when it is different to the
-        # state we detected FLAPPING_HYSTERESIS times before
+                _last_status = status
+                status_history.append(status)
+
+        overall_status = status_history[0]
+        for status in status_history[1:-1]:
+            if status in (ContainerStatus.FAILED, ContainerStatus.OKAY) \
+                    and status != overall_status:
+                overall_status = ContainerStatus.FLAPPING
+                break
+
+        # we want report a change for this container if the current status
+        # is not flapping (constant for FLAPPING_HYSTERESIS steps) and
+        # different to the oldest status we know
         changed = (
-            overall_status in (ContainerStatus.FAILED, ContainerStatus.OKAY) and
-            overall_status != status_history_list[-1].get(container_name, (overall_status))[0]
+            len(status_history) == FLAPPING_HYSTERESIS + 1 and (
+                (
+                    overall_status in (ContainerStatus.FAILED, ContainerStatus.OKAY)
+                    and status_history[-1] in (ContainerStatus.FAILED, ContainerStatus.OKAY)
+                    and status_history[-1] != overall_status
+                ) or (
+                    overall_status == ContainerStatus.FAILED
+                    and status_history[-1] == ContainerStatus.STARTING
+                )
+            )
         )
+
+        # if there is at leas one change, we want report changes
         changes_to_report = max(changes_to_report, changed)
 
         current_status.append(ExtendedStatusReport(
@@ -217,10 +239,7 @@ def main():
     if returncode == 42:
         # another instance is running
         exit()
-    if (len(status_history_list) == 1 and returncode) or changes_to_report:
-        # send mail if
-        # - there is a failure and no history is available
-        # - there are changes to report (see detect_flapping_and_changes)
+    if changes_to_report:
         send_mail(content_text, content_html, title, MAIL_SRC, MAIL_DST)
 
 
