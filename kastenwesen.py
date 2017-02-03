@@ -87,6 +87,12 @@ SELINUX_STATUS = None
 
 NAMESPACE = ''  # Namespace for containers and images. '' or '$namespace/'
 
+# status files
+STATUS_FILES_DIR = '/var/lib/kastenwesen/'
+RUNNING_CONTAINER_NAME_FILE = STATUS_FILES_DIR + '%(name)s.running_container_name'
+RUNNING_CONTAINER_ID_FILE = STATUS_FILES_DIR + '%(name)s.running_container_id'
+
+
 class ContainerStatus(object):
     OKAY = "OKAY"
     FAILED = "FAILED"
@@ -491,16 +497,18 @@ class DockerContainer(AbstractContainer):
         """ return id of last known container instance, or False otherwise"""
         # the running id file is written by `docker run --cidfile <file>` in .start()
         try:
-            f = open(self.container_base_name() + '.running_container_id', 'r')
-            return f.read()
+            return open(
+                RUNNING_CONTAINER_ID_FILE % {'name': self.container_base_name()}, 'r'
+            ).read()
         except IOError:
             return False
 
     def running_container_name(self):
         """ return name of last known container instance, or False otherwise"""
         try:
-            f = open(self.container_base_name() + '.running_container_name', 'r')
-            return f.read()
+            return open(
+                RUNNING_CONTAINER_NAME_FILE % {'name': self.container_base_name()}, 'r'
+            ).read()
         except IOError:
             return False
 
@@ -509,9 +517,7 @@ class DockerContainer(AbstractContainer):
         base_name = self.container_base_name()
         logging.debug("previous '%s' container name was: %s", base_name, previous_id)
         logging.debug("new '%s' container name is now: %s", base_name, new_id)
-        f = open(base_name + '.running_container_name', 'w')
-        f.write(new_id)
-        f.close()
+        open(RUNNING_CONTAINER_NAME_FILE % {'name': base_name}, 'w').write(new_id)
 
     def _get_docker_options(self):
         """Get all docker additional options like --link or custom options."""
@@ -544,7 +550,7 @@ class DockerContainer(AbstractContainer):
         if self.is_running():
             raise Exception('container is already running')
         base_name = self.container_base_name()
-        container_id_file = "{}.running_container_id".format(base_name)
+        container_id_file = RUNNING_CONTAINER_ID_FILE % {'name': base_name}
         # move container id file out of the way if it exists - otherwise docker complains at startup
         try:
             os.rename(container_id_file, container_id_file + "_previous")
@@ -583,24 +589,30 @@ class DockerContainer(AbstractContainer):
                 sys.exit(0)
 
     def check_for_unmanaged_containers(self):
-        """ warn if any containers not managed by kastenwesen are running from the same image """
-        running_containers = DOCKER_API_CLIENT.containers()
-        running_container_ids = [container['Id'] for container in running_containers]
-        logging.debug("Running containers: %s", str(running_container_ids))
+        """ Warn if any containers not managed by kastenwesen are running from the same image."""
         config_container_ids = [
             container.running_container_id() for container in CONFIG_CONTAINERS
             if isinstance(container, DockerContainer)
         ]
+        conflicting_containers = [
+            container for container in DOCKER_API_CLIENT.containers()
+            if container['Image'] == self.image_name
+            and container['Id'] not in config_container_ids
+            and not 'de.fau.fablab.kastenwesen.temporary' in container['Labels']
+        ]
+        logging.debug("Conflicting containers: %s", str(conflicting_containers))
 
-        # Check that no unmanaged containers are running from the same image
-        for container in running_containers:
-            if container['Image'] == self.image_name:
-                if container['Id'] not in config_container_ids:
-                    if container['Labels'].get('de.fau.fablab.kastenwesen.temporary') == "True":
-                        # temporary instance started by `check-for-updates` or `shell --new-instance`
-                        # do not raise a warning for this.
-                        continue
-                    raise Exception("The container '{}', not managed by kastenwesen.py, is currently running from the same image '{}'. I am assuming this is not what you want. Please stop it yourself and restart it via kastenwesen. See the output of 'docker ps' for more info.".format(container['Id'], self.image_name))
+        if conflicting_containers:
+            container_list = '\n'.join((
+                '- Container %s: Image %s' % (c['Id'][:12], c['Image'])
+                for c in conflicting_containers
+            ))
+            raise Exception(
+                "The following containers are not managed by kastenwesen.py, are currently running from kastenwesen images. "
+                "I am assuming this is not what you want. "
+                "Please stop it yourself and restart it via kastenwesen. "
+                "See the output of 'docker ps' for more info.\n" + container_list
+            )
 
     def is_running(self):
         """Return True if this container is running."""
@@ -1170,6 +1182,8 @@ if __name__ == "__main__":
     # get config from current dir, or from /etc/kastenwesen
     if not os.path.isfile("./kastenwesen_config.py") and os.path.isdir("/etc/kastenwesen"):
         os.chdir("/etc/kastenwesen/")
+
+    os.makedirs(STATUS_FILES_DIR, mode=0o755, exist_ok=True)
 
     # TODO hardcoded to the lower docker API version to run with ubuntu 14.04
     DOCKER_API_CLIENT = docker.Client(base_url='unix://var/run/docker.sock', version='1.12')
