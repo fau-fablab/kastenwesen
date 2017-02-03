@@ -499,7 +499,7 @@ class DockerContainer(AbstractContainer):
         # the running id file is written by `docker run --cidfile <file>` in .start()
         try:
             return open(
-                RUNNING_CONTAINER_NAME_FILE % {'name': self.container_base_name()}, 'r'
+                RUNNING_CONTAINER_ID_FILE % {'name': self.container_base_name()}, 'r'
             ).read()
         except IOError:
             return False
@@ -590,24 +590,30 @@ class DockerContainer(AbstractContainer):
                 sys.exit(0)
 
     def check_for_unmanaged_containers(self):
-        """ warn if any containers not managed by kastenwesen are running from the same image """
-        running_containers = DOCKER_API_CLIENT.containers()
-        running_container_ids = [container['Id'] for container in running_containers]
-        logging.debug("Running containers: %s", str(running_container_ids))
+        """ Warn if any containers not managed by kastenwesen are running from the same image."""
         config_container_ids = [
             container.running_container_id() for container in CONFIG_CONTAINERS
             if isinstance(container, DockerContainer)
         ]
+        conflicting_containers = [
+            container for container in DOCKER_API_CLIENT.containers()
+            if container['Image'] == self.image_name
+            and container['Id'] not in config_container_ids
+            and not 'de.fau.fablab.kastenwesen.temporary' in container['Labels']
+        ]
+        logging.debug("Conflicting containers: %s", str(conflicting_containers))
 
-        # Check that no unmanaged containers are running from the same image
-        for container in running_containers:
-            if container['Image'] == self.image_name:
-                if container['Id'] not in config_container_ids:
-                    if container['Labels'].get('de.fau.fablab.kastenwesen.temporary') == "True":
-                        # temporary instance started by `check-for-updates` or `shell --new-instance`
-                        # do not raise a warning for this.
-                        continue
-                    raise Exception("The container '{}', not managed by kastenwesen.py, is currently running from the same image '{}'. I am assuming this is not what you want. Please stop it yourself and restart it via kastenwesen. See the output of 'docker ps' for more info.".format(container['Id'], self.image_name))
+        if conflicting_containers:
+            container_list = '\n'.join((
+                '- Container %s: Image %s' % (c['Id'][:12], c['Image'])
+                for c in conflicting_containers
+            ))
+            raise Exception(
+                "The following containers are not managed by kastenwesen.py, are currently running from kastenwesen images. "
+                "I am assuming this is not what you want. "
+                "Please stop it yourself and restart it via kastenwesen. "
+                "See the output of 'docker ps' for more info.\n" + container_list
+            )
 
     def is_running(self):
         """Return True if this container is running."""
