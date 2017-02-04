@@ -63,6 +63,7 @@ from copy import copy
 from collections import namedtuple
 from distutils.version import LooseVersion
 from fcntl import LOCK_EX, LOCK_NB, flock
+import json
 
 import dateutil.parser
 import docker
