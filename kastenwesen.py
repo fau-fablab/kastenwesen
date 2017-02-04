@@ -1008,7 +1008,7 @@ def print_status_and_exit(given_containers, other_instance_running=False, out_fo
             if status == ContainerStatus.OKAY:
                 print_success('[ ok ] %s: %s' % (container_name, msg))
             elif status == ContainerStatus.STARTING:
-                print_notice('[ ok ] %s: %s' % (container_name, msg))
+                print_notice('[wait] %s: %s' % (container_name, msg))
             elif status == ContainerStatus.FAILED:
                 print_warning('[fail] %s: %s' % (container_name, msg))
             else:
