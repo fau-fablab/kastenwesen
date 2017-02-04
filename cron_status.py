@@ -41,10 +41,8 @@ import kastenwesen
 STATUS_DIR = '/var/run/kastenwesen_status/'
 STATUS_HTML = 'status.html'
 STATUS_JSON = 'status.json'
-LAST_MODIFIED_FILE = '.last_modified.txt'
 MAIL_SRC = MAIL_DST = 'root'
-# Status changes will be mailed when they were constant 5 times in a row:
-FLAPPING_HYSTERESIS = 5
+STATUS_HISTORY_LENGTH = 20
 
 PAGE_TEMPLATE = '''
 <!DOCTYPE html>
@@ -74,7 +72,8 @@ class ContainerStatus(kastenwesen.ContainerStatus):
 def get_new_status():
     """Return the current status of kastenwesen."""
     proc = subprocess.run(
-        './kastenwesen/kastenwesen.py status --cron'.split(),
+        [os.path.dirname(os.path.realpath(__file__)) + "/kastenwesen.py",
+            "status", "--cron"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -119,7 +118,7 @@ def format_status(status_report_list, out_format='html'):
         'ascii': {
             ContainerStatus.OKAY: '[ ok ] %(name)s: %(msg)s%(changed)s',
             ContainerStatus.FAILED: '[fail] %(name)s: %(msg)s%(changed)s',
-            ContainerStatus.STARTING: '[ ok ] %(name)s: %(msg)s%(changed)s',
+            ContainerStatus.STARTING: '[wait] %(name)s: %(msg)s%(changed)s',
             ContainerStatus.FLAPPING: '[flap] %(name)s: %(msg)s (flapping)%(changed)s',
         },
         'html': {
@@ -156,7 +155,7 @@ def update_html_page(content_html, stderr, title):
 
 
 def detect_flapping_and_changes(status_history_list):
-    """Return current status and detect flapping and changes we want report."""
+    """Return current status and detect changes we want report."""
     ExtendedStatusReport = namedtuple('ExtendedStatusReport', [
         'container_name',
         'current_status',
@@ -164,53 +163,44 @@ def detect_flapping_and_changes(status_history_list):
         'current_msg',
         'changed',
     ])
-    current_status = []
+    current_status_list = []
     changes_to_report = False
     for container_name, report in status_history_list[0].items():
         # get known history of this container
-        status_history = []
-        _last_status = ContainerStatus.STARTING
+        container_status_history = []
+        container_status_history_filtered = []
         for entry in status_history_list:
             if container_name in entry:
                 status = entry[container_name][0]
-                # strip out STARTING (starting is so good as its result)
+                # strip out STARTING (starting is as good as its result)
+                container_status_history.append(status)
                 if status == ContainerStatus.STARTING:
-                    status = _last_status
+                    continue
+                container_status_history_filtered.append(status)
 
-                _last_status = status
-                status_history.append(status)
+        overall_status = container_status_history[0]
+        # TODO: if the status changes too often, stop reporting changes
+        # and switch to FLAPPING state
+        # if flapping:
+        #     overall_status = ContainerStatus.FLAPPING
 
-        overall_status = status_history[0]
-        for status in status_history[1:-1]:
-            if status in (ContainerStatus.FAILED, ContainerStatus.OKAY) \
-                    and status != overall_status:
-                overall_status = ContainerStatus.FLAPPING
-                break
+        if len(container_status_history_filtered) > 2:
+            # enough history data is available.
+            # we want report a change for this container if the current status
+            # different to the oldest status we know
+            changed = container_status_history_filtered[0] != container_status_history_filtered[1]
+        else:
+            # not enough history is available. always report failure.
+            changed = container_status_history[0] == ContainerStatus.FAILED
 
-        # we want report a change for this container if the current status
-        # is not flapping (constant for FLAPPING_HYSTERESIS steps) and
-        # different to the oldest status we know
-        changed = (
-            len(status_history) == FLAPPING_HYSTERESIS + 1 and (
-                (
-                    overall_status in (ContainerStatus.FAILED, ContainerStatus.OKAY)
-                    and status_history[-1] in (ContainerStatus.FAILED, ContainerStatus.OKAY)
-                    and status_history[-1] != overall_status
-                ) or (
-                    overall_status == ContainerStatus.FAILED
-                    and status_history[-1] == ContainerStatus.STARTING
-                )
-            )
-        )
+        # if there is at least one change, we want to report changes
+        changes_to_report = changes_to_report or changed
 
-        # if there is at leas one change, we want report changes
-        changes_to_report = max(changes_to_report, changed)
-
-        current_status.append(ExtendedStatusReport(
+        current_status_list.append(ExtendedStatusReport(
             container_name, report[0], overall_status, report[1], changed
         ))
 
-    return changes_to_report, current_status
+    return changes_to_report, current_status_list
 
 
 def main():
@@ -220,13 +210,6 @@ def main():
     status_report_list_new, stderr, returncode = get_new_status()
     status_history_list = get_old_status()
     status_history_list.insert(0, status_report_list_new)
-    # update status history json file and drop oldest states we don't want to
-    # inspect next time
-    json.dump(
-        status_history_list[:FLAPPING_HYSTERESIS],
-        open(os.path.join(STATUS_DIR, STATUS_JSON), 'w'),
-        indent=2,
-    )
     # detect flapping
     changes_to_report, current_status_list = detect_flapping_and_changes(status_history_list)
     current_status_list = sorted(current_status_list)
@@ -237,9 +220,23 @@ def main():
     update_html_page(content_html, stderr, title)
     # send mail if needed
     if returncode == 42:
-        # another instance is running
+        # another instance is running.
+        # Never send mails during that.
+        # Also do not save the status history to make sure that no relevant change mails are suppressed.
         exit()
+
+    # update status history json file and drop oldest states we don't want to
+    # inspect next time
+    json.dump(
+        status_history_list[:STATUS_HISTORY_LENGTH],
+        open(os.path.join(STATUS_DIR, STATUS_JSON), 'w'),
+        indent=2,
+    )
+
     if changes_to_report:
+        if "--debug" in sys.argv:
+            print("report changes:")
+            print(content_text)
         send_mail(content_text, content_html, title, MAIL_SRC, MAIL_DST)
 
 

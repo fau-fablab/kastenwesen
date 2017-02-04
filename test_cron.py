@@ -5,13 +5,16 @@ import unittest
 
 from cron_status import *
 
-class TestFlappingDetection(unittest.TestCase):
-    """Test if the flapping detection is operational."""
+class TestChangeDetection(unittest.TestCase):
+    """Test if the change detection is operational."""
+
+    # Please note that status_history_list is backwards,
+    # i.e., newest entry first.
 
     def test_all_okay(self):
         status_history_list = [
             {'foo': (ContainerStatus.OKAY, 'no msg')}
-        ] * (FLAPPING_HYSTERESIS + 1)
+        ] * (STATUS_HISTORY_LENGTH + 1)
         changed, status = detect_flapping_and_changes(status_history_list)
         self.assertFalse(changed)
         self.assertEqual(changed, status[0].changed)  # because there is only 1 container
@@ -23,29 +26,39 @@ class TestFlappingDetection(unittest.TestCase):
     def test_all_failed(self):
         status_history_list = [
             {'foo': (ContainerStatus.FAILED, 'no msg')}
-        ] * (FLAPPING_HYSTERESIS + 1)
+        ] * (STATUS_HISTORY_LENGTH + 1)
         changed, status = detect_flapping_and_changes(status_history_list)
         self.assertFalse(changed)
         self.assertEqual(changed, status[0].changed)  # because there is only 1 container
         self.assertEqual(status[0].overall_status, ContainerStatus.FAILED)
         self.assertEqual(status[0].current_status, ContainerStatus.FAILED)
 
-    def test_failed_after_starting(self):
+    def test_failed_after_starting_short(self):
         status_history_list = [{'foo': (ContainerStatus.FAILED, 'no msg')}]
         status_history_list += [
             {'foo': (ContainerStatus.STARTING, 'no msg')}
-        ] * FLAPPING_HYSTERESIS
+        ] * (STATUS_HISTORY_LENGTH - 1)
+        status_history_list += [{'foo': (ContainerStatus.OKAY, 'no msg')}]
         changed, status = detect_flapping_and_changes(status_history_list)
-        self.assertFalse(changed)
+        self.assertTrue(changed)
+        self.assertEqual(status[0].overall_status, ContainerStatus.FAILED)
+
+    def test_failed_after_starting_very_long(self):
+        status_history_list = [{'foo': (ContainerStatus.FAILED, 'no msg')}]
+        status_history_list += [
+            {'foo': (ContainerStatus.STARTING, 'no msg')}
+        ] * STATUS_HISTORY_LENGTH
+        changed, status = detect_flapping_and_changes(status_history_list)
+        self.assertTrue(changed)
         self.assertEqual(status[0].overall_status, ContainerStatus.FAILED)
 
     def test_okay_after_failed(self):
         status_history_list = [
             {'foo': (ContainerStatus.OKAY, 'no msg')}
-        ] * FLAPPING_HYSTERESIS
+        ]
         status_history_list += [
             {'foo': (ContainerStatus.FAILED, 'no msg')}
-        ]
+        ] * STATUS_HISTORY_LENGTH
         changed, status = detect_flapping_and_changes(status_history_list)
         self.assertTrue(changed)
         self.assertEqual(status[0].overall_status, ContainerStatus.OKAY)
@@ -53,40 +66,18 @@ class TestFlappingDetection(unittest.TestCase):
     def test_failed_after_okay(self):
         status_history_list = [
             {'foo': (ContainerStatus.FAILED, 'no msg')}
-        ] * FLAPPING_HYSTERESIS
+        ]
         status_history_list += [
             {'foo': (ContainerStatus.OKAY, 'no msg')}
-        ]
+        ] * STATUS_HISTORY_LENGTH
         changed, status = detect_flapping_and_changes(status_history_list)
         self.assertTrue(changed)
         self.assertEqual(status[0].overall_status, ContainerStatus.FAILED)
 
-    def test_okay_after_failed_flapping(self):
-        status_history_list = [
-            {'foo': (ContainerStatus.OKAY, 'no msg')}
-        ] * (FLAPPING_HYSTERESIS - 1)
-        status_history_list += [
-            {'foo': (ContainerStatus.FAILED, 'no msg')}
-        ] * 2
-        changed, status = detect_flapping_and_changes(status_history_list)
-        self.assertFalse(changed)
-        self.assertEqual(status[0].overall_status, ContainerStatus.FLAPPING)
-
-    def test_failed_after_okay_flapping(self):
-        status_history_list = [
-            {'foo': (ContainerStatus.FAILED, 'no msg')}
-        ] * (FLAPPING_HYSTERESIS - 1)
-        status_history_list += [
-            {'foo': (ContainerStatus.OKAY, 'no msg')}
-        ] * 2
-        changed, status = detect_flapping_and_changes(status_history_list)
-        self.assertFalse(changed)
-        self.assertEqual(status[0].overall_status, ContainerStatus.FLAPPING)
-
     def test_missing_data(self):
         status_history_list = [
             {'foo': (ContainerStatus.FAILED, 'no msg')}
-        ] * (FLAPPING_HYSTERESIS - 1)
+        ] * (STATUS_HISTORY_LENGTH - 1)
         status_history_list += [{'foo': (ContainerStatus.OKAY, 'no msg')}]
         changed, status = detect_flapping_and_changes(status_history_list)
         self.assertFalse(changed)
@@ -95,7 +86,7 @@ class TestFlappingDetection(unittest.TestCase):
     def test_too_much_data(self):
         status_history_list = [
             {'foo': (ContainerStatus.OKAY, 'no msg')}
-        ] * (FLAPPING_HYSTERESIS + 1)
+        ] * (STATUS_HISTORY_LENGTH + 1)
         status_history_list += [{'foo': (ContainerStatus.FAILED, 'no msg')}]
         changed, status = detect_flapping_and_changes(status_history_list)
         self.assertFalse(changed)
