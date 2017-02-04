@@ -69,7 +69,7 @@ import dateutil.parser
 import docker
 import requests
 from docopt import docopt
-from termcolor import colored, cprint
+import termcolor
 
 from pidfilemanager import AlreadyRunning, PidFileManager
 
@@ -111,6 +111,32 @@ def exec_verbose(cmd, return_output=False):
         return subprocess.check_output(cmd, shell=True).decode('utf8')
     else:
         subprocess.check_call(cmd, shell=True)
+
+def cprint(text, file=None, **options):
+    """
+    Print colored text for output on interactive terminals.
+    Automatically disabled if the output is not a TTY.
+
+    See ``termcolor.cprint`` for documentation on the parameters.
+    """
+    if file is None:
+        file = sys.stdout
+    if sys.stdout.isatty() and sys.stderr.isatty():
+        termcolor.cprint(text, file=file, **options)
+    else:
+        print(text, file=file)
+
+def colored(text, **options):
+    """
+    Color the text for output on interactive terminals.
+    Automatically disabled if the output is not a TTY.
+
+    See ``termcolor.colored`` for documentation on the parameters.
+    """
+    if sys.stdout.isatty() and sys.stderr.isatty():
+        return termcolor.colored(text, **options)
+    else:
+        return text
 
 
 def print_success(text):
