@@ -30,6 +30,7 @@ import os
 import re
 import socket
 import subprocess
+import sys
 from collections import namedtuple
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
