@@ -24,7 +24,8 @@ kastenwesen: a python tool for managing multiple docker containers
 
 Usage:
   kastenwesen [help]
-  kastenwesen (status|start|restart|stop) [<container>...]
+  kastenwesen (start|restart|stop) [<container>...]
+  kastenwesen status [<container>...] [--cron]
   kastenwesen rebuild [--no-cache] [<container>...]
   kastenwesen check-for-updates [--auto-upgrade] [<container>...]
   kastenwesen shell [--new-instance] <container>
@@ -50,24 +51,27 @@ in non-interactive shells.
 If the containers argument is not given, the command refers to all containers in the config.
 """
 
-import os
-import sys
-import logging
-import time
-import subprocess
 import datetime
-import socket
+import logging
+import os
 import re
-from fcntl import flock, LOCK_EX, LOCK_NB
+import socket
+import subprocess
+import sys
+import time
 from copy import copy
+from collections import namedtuple
+from distutils.version import LooseVersion
+from fcntl import LOCK_EX, LOCK_NB, flock
+import json
+
 import dateutil.parser
 import docker
 import requests
-from termcolor import colored, cprint
 from docopt import docopt
-from copy import copy
-from pidfilemanager import PidFileManager, AlreadyRunning
-from distutils.version import LooseVersion
+import termcolor
+
+from pidfilemanager import AlreadyRunning, PidFileManager
 
 # switch off strange python requests warnings and log output
 requests.packages.urllib3.disable_warnings()
@@ -90,6 +94,12 @@ RUNNING_CONTAINER_NAME_FILE = STATUS_FILES_DIR + '%(name)s.running_container_nam
 RUNNING_CONTAINER_ID_FILE = STATUS_FILES_DIR + '%(name)s.running_container_id'
 
 
+class ContainerStatus(object):
+    OKAY = "OKAY"
+    FAILED = "FAILED"
+    STARTING = "STARTING"
+
+
 def exec_verbose(cmd, return_output=False):
     """
     run a command, and print infos about that to the terminal and log.
@@ -101,6 +111,32 @@ def exec_verbose(cmd, return_output=False):
         return subprocess.check_output(cmd, shell=True).decode('utf8')
     else:
         subprocess.check_call(cmd, shell=True)
+
+def cprint(text, file=None, **options):
+    """
+    Print colored text for output on interactive terminals.
+    Automatically disabled if the output is not a TTY.
+
+    See ``termcolor.cprint`` for documentation on the parameters.
+    """
+    if file is None:
+        file = sys.stdout
+    if sys.stdout.isatty() and sys.stderr.isatty():
+        termcolor.cprint(text, file=file, **options)
+    else:
+        print(text, file=file)
+
+def colored(text, **options):
+    """
+    Color the text for output on interactive terminals.
+    Automatically disabled if the output is not a TTY.
+
+    See ``termcolor.colored`` for documentation on the parameters.
+    """
+    if sys.stdout.isatty() and sys.stderr.isatty():
+        return termcolor.colored(text, **options)
+    else:
+        return text
 
 
 def print_success(text):
@@ -287,8 +323,10 @@ class AbstractContainer(object):
         return None
 
     def test(self, sleep_before=True):
+        """Return True if all tests succeeded."""
         if not self.tests:
             logging.warning("no tests defined for container %s, a build error might go unnoticed!", self.name)
+
         success = True
         for test in self.tests:
             success = test.run(self) and success
@@ -298,35 +336,23 @@ class AbstractContainer(object):
             time.sleep(self.sleep_before_test)
         return success
 
-    def print_status(self, sleep_before=True):
-        running = self.is_running()
-        time_running = self.time_running()
-        if not running and not self.only_build:
-            print_warning("{name}: container is stopped".format(name=self.name))
-        if self.only_build:
-            print_success("{} (only build)".format(self.name))
-            # NOTE: tests in containers with only_build=True are currently not supported.
-            return True
-        if self.test(sleep_before):
-            # tests successful
-            if running:
-                print_success("{name} running, tests OK".format(name=self.name))
-                return True
+    def get_status(self, sleep_before=True):
+        """Return a tuple: (okay: ContainerStatus, msg: str)."""
+        if self.is_running():
+            if self.test(sleep_before):
+                return (ContainerStatus.OKAY, '%d tests ok' % len(self.tests))
+            elif self.time_running() < self.startup_gracetime:
+                return (ContainerStatus.STARTING, 'starting up... Tests not yet OK')
             else:
-                print_warning("{name}: container is stopped, but tests are successful. WTF?".format(name=self.name))
-                return False
+                return (ContainerStatus.FAILED, 'running, but tests failed')
         else:
-            if running:
-                if time_running < self.startup_gracetime:
-                    print_notice("{name} starting up...  tests not yet OK".format(name=self.name))
-                    return True
-                else:
-                    print_warning("{name} running, but tests failed".format(name=self.name))
-                    return False
+            if self.only_build:
+                # NOTE: tests in containers with only_build=True are currently not supported.
+                return (ContainerStatus.OKAY, '(only build)')
+            elif self.test(sleep_before):
+                return (ContainerStatus.FAILED, 'stopped, but tests succeeded. Check your tests!')
             else:
-                # The container doesn't run,
-                # therefore it is normal that the tests will fail.
-                return False
+                return (ContainerStatus.FAILED, 'stopped')
 
     def needs_package_updates(self):
         """
@@ -857,14 +883,6 @@ def stop_many(requested_containers, message_restart=False):
     return stop_containers
 
 
-def status_many(containers):
-    okay = True
-    for container in containers:
-        container_okay = container.print_status(sleep_before=False)
-        okay = container_okay and okay
-    return okay
-
-
 def need_package_updates(containers):
     """ return all of the given containers that need package updates """
     return [container for container in containers if container.needs_package_updates()]
@@ -954,18 +972,65 @@ def cleanup_images(min_age_days=0, simulate=False, simulated_deleted_containers=
                 print_warning("Failed to remove unused image {}".format(image['Id']))
 
 
-def print_status_and_exit(given_containers, other_instance_running=False):
-    if status_many(given_containers):
-        print_success("Success.")
-        sys.exit(0)
+def get_status(given_containers):
+    """
+    Return a list of named tuples containing the status of given_containers.
+
+    >>> get_status(...)
+    [(container_name, status, msg), ...]
+    """
+    StatusReport = namedtuple('StatusReport', ['container_name', 'status', 'msg'])
+    return sorted([
+        StatusReport(container.name, *container.get_status(sleep_before=False))
+        for container in given_containers
+    ])
+
+
+def print_status_and_exit(given_containers, other_instance_running=False, out_format='ascii'):
+    """
+    Print container status to stdout and exit.
+
+    out_format: 'ascii' for human readable text, 'json' for json on stdout
+    Exit status:
+        - 0: Everything ok
+        - 1: There are failed containers
+        - 42: There are failed containers but an other instance is running,
+        too, which may cause the failures
+    """
+    status_report_list = get_status(given_containers)
+    failed_containers = any((
+        1 if status_report.status == ContainerStatus.FAILED else 0
+        for status_report in status_report_list
+    ))
+
+    if out_format == 'ascii':
+        for container_name, status, msg in status_report_list:
+            if status == ContainerStatus.OKAY:
+                print_success('[ ok ] %s: %s' % (container_name, msg))
+            elif status == ContainerStatus.STARTING:
+                print_notice('[wait] %s: %s' % (container_name, msg))
+            elif status == ContainerStatus.FAILED:
+                print_warning('[fail] %s: %s' % (container_name, msg))
+            else:
+                raise ValueError('Invalid status %s' % container_status)
+    elif out_format == 'json':
+        print(json.dumps(status_report_list))
     else:
+        raise ValueError('Invalid format %s' % out_format)
+
+    if failed_containers:
         if other_instance_running:
-            print_notice("Errors were ignored "
-                         "because another kastenwesen instance is running.")
-            sys.exit(0)
+            if out_format == 'ascii':
+                print_notice("Errors were ignored "
+                             "because another kastenwesen instance is running.")
+            sys.exit(42)
         else:
-            print_fatal("Some containers are not working!")
+            if out_format == 'ascii':
+                print_fatal("Some containers are not working!")
+
             sys.exit(1)
+
+    sys.exit(0)
 
 
 def check_config(containers):
@@ -1026,7 +1091,7 @@ def main():
     # read only args: "passive" actions which do not change containers
     # note: a running shell will crash on rebuilds of the same container!
     read_only_args = ["status", "log", "shell"]
-    lock_needed = not sum([arguments[key] for key in read_only_args])
+    lock_needed = not any([arguments[key] for key in read_only_args])
     if arguments["check-for-updates"] and arguments["--auto-upgrade"]:
         lock_needed = True
     pid = PidFileManager("/var/lock/kastenwesen")
@@ -1078,7 +1143,11 @@ def main():
         time.sleep(DEFAULT_STARTUP_GRACETIME)
         print_status_and_exit(given_containers)
     elif arguments["status"]:
-        print_status_and_exit(given_containers, other_instance_running)
+        print_status_and_exit(
+            given_containers,
+            other_instance_running,
+            out_format='json' if arguments['--cron'] else 'ascii',
+        )
     elif arguments["start"]:
         restart_many(container for container in given_containers
                      if not (container.is_running() or container.only_build))
