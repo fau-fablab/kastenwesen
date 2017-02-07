@@ -78,11 +78,16 @@ def get_new_status():
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    status_report_list = json.loads(proc.stdout.decode('utf8'))
-    status_report_dict = {
-        container_name: (status, msg)
-        for container_name, status, msg in status_report_list
-    }
+    stdout = proc.stdout.decode('utf8')
+    if proc.returncode == 42:
+        # another instance of kastenwesen is currently running -> no output
+        status_report_dict = {}
+    else:
+        status_report_dict = {
+            container_name: (status, msg)
+            for container_name, status, msg in json.loads(stdout)
+        }
+
     return (
         status_report_dict,
         proc.stderr.decode('utf8'),
