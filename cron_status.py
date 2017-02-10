@@ -130,8 +130,8 @@ def format_status(status_report_list, out_format='html'):
         'html': {
             ContainerStatus.OKAY: '<li style="color:green;">[ ok ] %(name)s: %(msg)s%(changed)s</li>',
             ContainerStatus.FAILED:'<li style="color:red;">[fail] %(name)s: %(msg)s%(changed)s</li>',
-            ContainerStatus.STARTING: '<li style="color:yellow;">[ ok ] %(name)s: %(msg)s%(changed)s</li>',
-            ContainerStatus.FLAPPING: '<li style="color:orange;">[flap] %(name)s: %(msg)s (flapping)%(changed)s</li>',
+            ContainerStatus.STARTING: '<li style="color:orange;">[wait] %(name)s: %(msg)s%(changed)s</li>',
+            ContainerStatus.FLAPPING: '<li style="color:red;">[flap] %(name)s: %(msg)s (flapping)%(changed)s</li>',
         },
     }
 
