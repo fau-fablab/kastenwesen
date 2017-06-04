@@ -340,6 +340,7 @@ class AbstractContainer(object):
             return (ContainerStatus.OKAY, '(only build)')
         if self.test(sleep_before):
             if self.is_running() or self.only_build:
+                running = "running, " if self.is_running() else ""
                 return (ContainerStatus.OKAY, '{message_run}{tests_ok}/{tests_ok} tests ok'.format(message_run=running, tests_ok=len(self.tests)))
             else:
                 if self.tests:
