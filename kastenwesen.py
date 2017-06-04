@@ -204,7 +204,7 @@ class URLTest(AbstractTest):
 
     def run(self, container_instance):
         try:
-            t = requests.get(self.url, verify=self.verify_ssl_cert)
+            t = requests.get(self.url, verify=self.verify_ssl_cert, timeout=TCP_TIMEOUT)
             t.raise_for_status()
         except IOError as e:
             logging.error("Test failed for HTTP %s: %s", self.url, e)
@@ -324,9 +324,6 @@ class AbstractContainer(object):
 
     def test(self, sleep_before=True):
         """Return True if all tests succeeded."""
-        if not self.tests:
-            logging.warning("no tests defined for container %s, a build error might go unnoticed!", self.name)
-
         success = True
         for test in self.tests:
             success = test.run(self) and success
@@ -338,19 +335,25 @@ class AbstractContainer(object):
 
     def get_status(self, sleep_before=True):
         """Return a tuple: (okay: ContainerStatus, msg: str)."""
-        if self.is_running():
-            if self.test(sleep_before):
-                return (ContainerStatus.OKAY, '%d tests ok' % len(self.tests))
-            elif self.time_running() < self.startup_gracetime:
-                return (ContainerStatus.STARTING, 'starting up... Tests not yet OK')
+        if self.only_build and not self.tests:
+            # no tests for build-only container -> always return OK
+            return (ContainerStatus.OKAY, '(only build)')
+        if self.test(sleep_before):
+            if self.is_running() or self.only_build:
+                return (ContainerStatus.OKAY, '{message_run}{tests_ok}/{tests_ok} tests ok'.format(message_run=running, tests_ok=len(self.tests)))
             else:
-                return (ContainerStatus.FAILED, 'running, but tests failed')
-        else:
+                if self.tests:
+                    return (ContainerStatus.FAILED, 'stopped, but tests succeeded. Check your tests!')
+                else:
+                    return (ContainerStatus.FAILED, 'stopped')
+        else: # tests failed
             if self.only_build:
-                # NOTE: tests in containers with only_build=True are currently not supported.
-                return (ContainerStatus.OKAY, '(only build)')
-            elif self.test(sleep_before):
-                return (ContainerStatus.FAILED, 'stopped, but tests succeeded. Check your tests!')
+                return (ContainerStatus.FAILED, 'tests failed')
+            if self.is_running():
+                if self.time_running() < self.startup_gracetime:
+                    return (ContainerStatus.STARTING, 'starting up... Tests not yet OK')
+                else:
+                    return (ContainerStatus.FAILED, 'running, but tests failed')
             else:
                 return (ContainerStatus.FAILED, 'stopped')
 
@@ -983,7 +986,7 @@ def get_status(given_containers):
     return sorted([
         StatusReport(container.name, *container.get_status(sleep_before=False))
         for container in given_containers
-    ])
+    ], key=lambda x: str.lower(x.container_name))
 
 
 def print_status_and_exit(given_containers, other_instance_running=False, out_format='ascii'):
