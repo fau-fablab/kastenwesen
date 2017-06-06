@@ -98,6 +98,7 @@ class ContainerStatus(object):
     OKAY = "OKAY"
     FAILED = "FAILED"
     STARTING = "STARTING"
+    MISSING = 'MISSING'
 
 
 def exec_verbose(cmd, return_output=False):
@@ -313,6 +314,17 @@ class AbstractContainer(object):
     def is_running(self):
         return False
 
+    @property
+    def is_built(self):
+        """Return True if image for this container exists locally."""
+        return any(
+            any(
+                tag == NAMESPACE + self.name + (':latest' if ':' not in self.name else '')
+                for tag in image['RepoTags']
+            )
+            for image in DOCKER_API_CLIENT.images(name=NAMESPACE + self.name)
+        )
+
     def time_running(self):
         """
         Time in seconds since last start/restart, or `None` if unsupported or temporarily not available.
@@ -335,10 +347,12 @@ class AbstractContainer(object):
 
     def get_status(self, sleep_before=True):
         """Return a tuple: (okay: ContainerStatus, msg: str)."""
-        if self.only_build and not self.tests:
+        if not self.is_built:
+            return (ContainerStatus.MISSING, 'image is missing on the local system')
+        elif self.only_build and not self.tests:
             # no tests for build-only container -> always return OK
             return (ContainerStatus.OKAY, '(only build)')
-        if self.test(sleep_before):
+        elif self.test(sleep_before):
             if self.is_running() or self.only_build:
                 running = "running, " if self.is_running() else ""
                 return (ContainerStatus.OKAY, '{message_run}{tests_ok}/{tests_ok} tests ok'.format(message_run=running, tests_ok=len(self.tests)))
@@ -389,6 +403,10 @@ class MonitoringTask(AbstractContainer):
         pseudo-'container' that only runs tests, nothing else. Can be used for monitoring external services from kastenwesen status.
         """
         AbstractContainer.__init__(self, name, only_build=True)
+
+    @property
+    def is_built(self):
+        return True
 
 
 class DockerDatetime(object):
@@ -1002,21 +1020,23 @@ def print_status_and_exit(given_containers, other_instance_running=False, out_fo
         too, which may cause the failures
     """
     status_report_list = get_status(given_containers)
-    failed_containers = any((
-        1 if status_report.status == ContainerStatus.FAILED else 0
+    failed_containers = any(
+        1 if status_report.status in (ContainerStatus.FAILED, ContainerStatus.MISSING) else 0
         for status_report in status_report_list
-    ))
+    )
 
     if out_format == 'ascii':
         for container_name, status, msg in status_report_list:
             if status == ContainerStatus.OKAY:
-                print_success('[ ok ] %s: %s' % (container_name, msg))
+                print_success('[ ok ] {0}: {1}'.format(container_name, msg))
             elif status == ContainerStatus.STARTING:
-                print_notice('[wait] %s: %s' % (container_name, msg))
+                print_notice('[wait] {0}: {1}'.format(container_name, msg))
             elif status == ContainerStatus.FAILED:
-                print_warning('[fail] %s: %s' % (container_name, msg))
+                print_warning('[fail] {0}: {1}'.format(container_name, msg))
+            elif status == ContainerStatus.MISSING:
+                print_warning('[miss] {0}: {1}'.format(container_name, msg))
             else:
-                raise ValueError('Invalid status %s' % container_status)
+                raise ValueError('Invalid status {0} for {1}'.format(container_status, container_name))
     elif out_format == 'json':
         print(json.dumps(status_report_list))
     else:
