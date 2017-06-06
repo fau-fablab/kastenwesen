@@ -124,12 +124,14 @@ def format_status(status_report_list, out_format='html'):
         'ascii': {
             ContainerStatus.OKAY: '[ ok ] %(name)s: %(msg)s%(changed)s',
             ContainerStatus.FAILED: '[fail] %(name)s: %(msg)s%(changed)s',
+            ContainerStatus.MISSING: '[miss] %(name)s: %(msg)s%(changed)s',
             ContainerStatus.STARTING: '[wait] %(name)s: %(msg)s%(changed)s',
             ContainerStatus.FLAPPING: '[flap] %(name)s: %(msg)s (flapping)%(changed)s',
         },
         'html': {
             ContainerStatus.OKAY: '<li style="color:green;">[ ok ] %(name)s: %(msg)s%(changed)s</li>',
             ContainerStatus.FAILED:'<li style="color:red;">[fail] %(name)s: %(msg)s%(changed)s</li>',
+            ContainerStatus.MISSING:'<li style="color:red;">[miss] %(name)s: %(msg)s%(changed)s</li>',
             ContainerStatus.STARTING: '<li style="color:orange;">[wait] %(name)s: %(msg)s%(changed)s</li>',
             ContainerStatus.FLAPPING: '<li style="color:red;">[flap] %(name)s: %(msg)s (flapping)%(changed)s</li>',
         },
@@ -197,7 +199,7 @@ def detect_flapping_and_changes(status_history_list):
             changed = container_status_history_filtered[0] != container_status_history_filtered[1]
         else:
             # not enough history is available. always report failure.
-            changed = container_status_history[0] == ContainerStatus.FAILED
+            changed = container_status_history[0] in (ContainerStatus.FAILED, ContainerStatus.MISSING)
 
         # if there is at least one change, we want to report changes
         changes_to_report = changes_to_report or changed
