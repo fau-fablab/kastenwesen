@@ -270,7 +270,12 @@ class DockerShellTest(AbstractTest):
         cmd = ["docker", "exec", container_instance.running_container_name(),
                'bash', '-c', self.shell_cmd]
         try:
-            subprocess.check_call(cmd, timeout=self.timeout)
+            subprocess.check_call(
+                cmd,
+                timeout=self.timeout,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
         except subprocess.CalledProcessError as err:
             logging.warning(
                 "Test with shell command '%s' failed with returncode %s",
