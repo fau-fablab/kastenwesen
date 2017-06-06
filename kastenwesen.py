@@ -329,10 +329,10 @@ class AbstractContainer(object):
         """Return True if image for this container exists locally."""
         return any(
             any(
-                tag == NAMESPACE + self.name + (':latest' if ':' not in self.name else '')
+                tag == self.name + (':latest' if ':' not in self.name else '')
                 for tag in image['RepoTags']
             )
-            for image in DOCKER_API_CLIENT.images(name=NAMESPACE + self.name)
+            for image in DOCKER_API_CLIENT.images(name=self.name)
         )
 
     def time_running(self):
