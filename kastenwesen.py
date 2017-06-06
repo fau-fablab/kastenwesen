@@ -101,6 +101,16 @@ class ContainerStatus(object):
     MISSING = 'MISSING'
 
 
+class ImageNotFound(Exception):
+    """Exception if an image could not be found on the local machine."""
+    def __init__(self, container):
+        self.container = container
+        super(ImageNotFound, self).__init__(
+            'There is no image on the local machine for container {}. '
+            'Maybe you have to build it first?'.format(self.container.name)
+        )
+
+
 def exec_verbose(cmd, return_output=False):
     """
     run a command, and print infos about that to the terminal and log.
@@ -596,6 +606,8 @@ class DockerContainer(AbstractContainer):
 
     def start(self):
         """Start the container."""
+        if not self.is_built:
+            raise ImageNotFound(container=self)
         if self.is_running():
             raise Exception('container is already running')
         base_name = self.container_base_name()
@@ -696,6 +708,8 @@ class DockerContainer(AbstractContainer):
         :return: ``True`` if any packages could be updated
         :rtype: bool
         """
+        if not self.is_built:
+            raise ImageNotFound(container=self)
         kastenwesen_path = os.path.dirname(os.path.realpath(__file__))
 
         if self.is_running():
@@ -753,6 +767,8 @@ class DockerContainer(AbstractContainer):
 
         if new_instance:
             # docker run ... to launch new instance
+            if not self.is_built:
+                raise ImageNotFound(container=self)
             print("Starting a new container instance with an interactive shell:")
             base_name = self.container_base_name()
             new_name = base_name + '-tmp' + datetime.datetime.now().strftime("-%Y-%m-%d_%H_%M_%S")
@@ -771,7 +787,7 @@ class DockerContainer(AbstractContainer):
             # docker exec ... in running instance
             print("Starting a shell inside the running instance.")
             if not self.is_running():
-                print_fatal("Container {} is not running. Use --new-instance to start a new container instance especially for the shell.")
+                print_fatal("Container {} is not running. Use --new-instance to start a new container instance especially for the shell.".format(self.name))
             cmd = "docker exec -it {container} bash".format(container=self.running_container_name())
         exec_verbose(cmd)
 
@@ -872,7 +888,10 @@ def restart_many(requested_containers):
             # container is only a meta container, not really started
             continue
         if container in stop_containers or not container.is_running():
-            container.start()
+            try:
+                container.start()
+            except ImageNotFound as exc:
+                print_fatal(str(exc))
     return start_containers
 
 
@@ -910,8 +929,11 @@ def stop_many(requested_containers, message_restart=False):
 
 
 def need_package_updates(containers):
-    """ return all of the given containers that need package updates """
-    return [container for container in containers if container.needs_package_updates()]
+    """Return all of the given containers that need package updates."""
+    try:
+        return [container for container in containers if container.needs_package_updates()]
+    except ImageNotFound as exc:
+        print_fatal(str(exc))
 
 
 def cleanup_containers(min_age_days=0, simulate=False):
@@ -1184,7 +1206,10 @@ def main():
     elif arguments["stop"]:
         stop_many(given_containers)
     elif arguments["shell"]:
-        given_containers[0].interactive_shell(arguments["--new-instance"])
+        try:
+            given_containers[0].interactive_shell(arguments["--new-instance"])
+        except ImageNotFound as exc:
+            print_fatal(str(exc))
     elif arguments["log"]:
         given_containers[0].logs(follow=arguments["-f"])
     elif arguments["cleanup"]:
