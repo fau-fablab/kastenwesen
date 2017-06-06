@@ -26,7 +26,7 @@ Usage:
   kastenwesen [help]
   kastenwesen (start|restart|stop) [<container>...]
   kastenwesen status [<container>...] [--cron]
-  kastenwesen rebuild [--no-cache] [<container>...]
+  kastenwesen rebuild [--no-cache] [--missing] [<container>...]
   kastenwesen check-for-updates [--auto-upgrade] [<container>...]
   kastenwesen shell [--new-instance] <container>
   kastenwesen log [-f] <container>
@@ -37,7 +37,7 @@ Options:
 
 Actions explained:
   status: show status
-  rebuild: rebuild and restart. Takes care of dependencies.
+  rebuild: rebuild and restart. Takes care of dependencies. --no-cache: Force rebuild of all layers. --missing: skip images that are already built
   stop: stop a container or stop all containers. Also stops dependent containers (e.g. web application is stopped if you stop its database container)
   start: inverse of stop. Due to the way how docker links work, some additional containers will automatically be restarted to fix links.
   restart: stop and start again
@@ -523,7 +523,7 @@ class DockerContainer(AbstractContainer):
         return self.name[len(NAMESPACE):]
 
     def rebuild(self, ignore_cache=False):
-        """ rebuild the container image """
+        """Rebuild the container image."""
         # self.is_running() is called for the check against manually started containers from this image.
         # after building, the old images will be nameless and this check is no longer possible
         self.is_running()
@@ -776,14 +776,18 @@ class DockerContainer(AbstractContainer):
         exec_verbose(cmd)
 
 
-def rebuild_many(containers, ignore_cache=False):
+def rebuild_many(containers, ignore_cache=False, only_missing=False):
     """ rebuild given containers
 
     :param list[AbstractContainer] containers: containers to rebuild
     :param bool ignore_cache: use ``--no-cache`` in docker build to ensure that external dependencies are fresh
+    :param only_missing rebuild only containers if there is no image on the local system
     :return list[AbstractContainer]: all containers that were affected by the rebuild. Also contains additional dependent containers that had to be restarted.
     """
     for container in containers:
+        if only_missing and container.is_built:
+            logging.info("Skipping {name}, because it is already built".format(name=container.name))
+            continue
         container.rebuild(ignore_cache)
     # TODO dummy test before restarting real system
     return restart_many(containers)
@@ -1159,7 +1163,7 @@ def main():
             )
 
     if arguments["rebuild"]:
-        affected_containers = rebuild_many(given_containers, ignore_cache=bool(arguments["--no-cache"]))
+        affected_containers = rebuild_many(given_containers, ignore_cache=bool(arguments["--no-cache"]), only_missing=bool(arguments["--missing"]))
         time.sleep(DEFAULT_STARTUP_GRACETIME)
         print_status_and_exit(affected_containers)
     elif arguments["restart"]:
