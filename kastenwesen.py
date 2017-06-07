@@ -326,14 +326,8 @@ class AbstractContainer(object):
 
     @property
     def is_built(self):
-        """Return True if image for this container exists locally."""
-        return any(
-            any(
-                tag == self.name + (':latest' if ':' not in self.name else '')
-                for tag in image['RepoTags']
-            )
-            for image in DOCKER_API_CLIENT.images(name=self.name)
-        )
+        """Return True if this container is already built or does not need to be built."""
+        return True
 
     def time_running(self):
         """
@@ -413,10 +407,6 @@ class MonitoringTask(AbstractContainer):
         pseudo-'container' that only runs tests, nothing else. Can be used for monitoring external services from kastenwesen status.
         """
         AbstractContainer.__init__(self, name, only_build=True)
-
-    @property
-    def is_built(self):
-        return True
 
 
 class DockerDatetime(object):
@@ -685,6 +675,17 @@ class DockerContainer(AbstractContainer):
             return status['State']['Running']
         except docker.errors.NotFound:
             return False
+
+    @property
+    def is_built(self):
+        """Return True if an image for this container exists locally."""
+        return any(
+            any(
+                tag == self.name + (':latest' if ':' not in self.name else '')
+                for tag in image['RepoTags']
+            )
+            for image in DOCKER_API_CLIENT.images(name=self.name)
+        )
 
     def time_running(self):
         """
