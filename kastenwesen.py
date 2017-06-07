@@ -24,9 +24,9 @@ kastenwesen: a python tool for managing multiple docker containers
 
 Usage:
   kastenwesen [help]
-  kastenwesen (start|restart|stop) [<container>...]
   kastenwesen status [<container>...] [--cron]
-  kastenwesen rebuild [--no-cache] [<container>...]
+  kastenwesen (start|stop|restart) [<container>...]
+  kastenwesen rebuild [--no-cache] [--missing] [<container>...]
   kastenwesen check-for-updates [--auto-upgrade] [<container>...]
   kastenwesen shell [--new-instance] <container>
   kastenwesen log [-f] <container>
@@ -37,16 +37,23 @@ Options:
 
 Actions explained:
   status: show status
-  rebuild: rebuild and restart. Takes care of dependencies.
-  stop: stop a container or stop all containers. Also stops dependent containers (e.g. web application is stopped if you stop its database container)
-  start: inverse of stop. Due to the way how docker links work, some additional containers will automatically be restarted to fix links.
+  start: inverse of stop.
+            Due to the way how docker links work,
+            some additional containers will automatically be restarted to fix links.
+  stop: stop a container or stop all containers.
+            Also stops dependent containers
+            (e.g. web application is stopped if you stop its database container)
   restart: stop and start again
-  shell: exec a shell inside the running container, or inside a separate instance of this image if using --new-instance
+  rebuild: rebuild and restart.
+            Takes care of dependencies.
+            --no-cache: Force rebuild of all layers.
+            --missing: skip images that are already built
+  check-for-updates: Check if there are updates for this image
+            --auto-upgrade: Also trigger a rebuilt to apply this updates
+            (auto-upgrade can be disabled by setting disable_auto_upgrade=True in kastenwesen_config)
+  shell: exec a shell inside the running container,
+            or inside a separate instance of this image if using --new-instance
   cleanup: carefully remove old containers and images that are no longer used
-
-If check-for-updates is called with option --auto-upgrade, the upgrade will be triggered automatically.
-This can be prevented by disabling it in kastenwesen_config.py. If disabled auto-upgrade will be automatically skipped
-in non-interactive shells.
 
 If the containers argument is not given, the command refers to all containers in the config.
 """
@@ -98,6 +105,17 @@ class ContainerStatus(object):
     OKAY = "OKAY"
     FAILED = "FAILED"
     STARTING = "STARTING"
+    MISSING = 'MISSING'
+
+
+class ImageNotFound(Exception):
+    """Exception if an image could not be found on the local machine."""
+    def __init__(self, container):
+        self.container = container
+        super(ImageNotFound, self).__init__(
+            'There is no image on the local machine for container {}. '
+            'Maybe you have to build it first?'.format(self.container.name)
+        )
 
 
 def exec_verbose(cmd, return_output=False):
@@ -318,6 +336,11 @@ class AbstractContainer(object):
     def is_running(self):
         return False
 
+    @property
+    def is_built(self):
+        """Return True if this container is already built or does not need to be built."""
+        return True
+
     def time_running(self):
         """
         Time in seconds since last start/restart, or `None` if unsupported or temporarily not available.
@@ -340,10 +363,12 @@ class AbstractContainer(object):
 
     def get_status(self, sleep_before=True):
         """Return a tuple: (okay: ContainerStatus, msg: str)."""
-        if self.only_build and not self.tests:
+        if not self.is_built:
+            return (ContainerStatus.MISSING, 'image is missing on the local system')
+        elif self.only_build and not self.tests:
             # no tests for build-only container -> always return OK
             return (ContainerStatus.OKAY, '(only build)')
-        if self.test(sleep_before):
+        elif self.test(sleep_before):
             if self.is_running() or self.only_build:
                 running = "running, " if self.is_running() else ""
                 return (ContainerStatus.OKAY, '{message_run}{tests_ok}/{tests_ok} tests ok'.format(message_run=running, tests_ok=len(self.tests)))
@@ -510,7 +535,7 @@ class DockerContainer(AbstractContainer):
         return self.name[len(NAMESPACE):]
 
     def rebuild(self, ignore_cache=False):
-        """ rebuild the container image """
+        """Rebuild the container image."""
         # self.is_running() is called for the check against manually started containers from this image.
         # after building, the old images will be nameless and this check is no longer possible
         self.is_running()
@@ -583,6 +608,8 @@ class DockerContainer(AbstractContainer):
 
     def start(self):
         """Start the container."""
+        if not self.is_built:
+            raise ImageNotFound(container=self)
         if self.is_running():
             raise Exception('container is already running')
         base_name = self.container_base_name()
@@ -661,6 +688,17 @@ class DockerContainer(AbstractContainer):
         except docker.errors.NotFound:
             return False
 
+    @property
+    def is_built(self):
+        """Return True if an image for this container exists locally."""
+        return any(
+            any(
+                tag == self.name + (':latest' if ':' not in self.name else '')
+                for tag in image['RepoTags']
+            )
+            for image in DOCKER_API_CLIENT.images(name=self.name)
+        )
+
     def time_running(self):
         """
         Time in seconds since last start/restart, or `None` if unsupported or temporarily not available.
@@ -683,6 +721,8 @@ class DockerContainer(AbstractContainer):
         :return: ``True`` if any packages could be updated
         :rtype: bool
         """
+        if not self.is_built:
+            raise ImageNotFound(container=self)
         kastenwesen_path = os.path.dirname(os.path.realpath(__file__))
 
         if self.is_running():
@@ -740,6 +780,8 @@ class DockerContainer(AbstractContainer):
 
         if new_instance:
             # docker run ... to launch new instance
+            if not self.is_built:
+                raise ImageNotFound(container=self)
             print("Starting a new container instance with an interactive shell:")
             base_name = self.container_base_name()
             new_name = base_name + '-tmp' + datetime.datetime.now().strftime("-%Y-%m-%d_%H_%M_%S")
@@ -758,19 +800,23 @@ class DockerContainer(AbstractContainer):
             # docker exec ... in running instance
             print("Starting a shell inside the running instance.")
             if not self.is_running():
-                print_fatal("Container {} is not running. Use --new-instance to start a new container instance especially for the shell.")
+                print_fatal("Container {} is not running. Use --new-instance to start a new container instance especially for the shell.".format(self.name))
             cmd = "docker exec -it {container} bash".format(container=self.running_container_name())
         exec_verbose(cmd)
 
 
-def rebuild_many(containers, ignore_cache=False):
+def rebuild_many(containers, ignore_cache=False, only_missing=False):
     """ rebuild given containers
 
     :param list[AbstractContainer] containers: containers to rebuild
     :param bool ignore_cache: use ``--no-cache`` in docker build to ensure that external dependencies are fresh
+    :param only_missing rebuild only containers if there is no image on the local system
     :return list[AbstractContainer]: all containers that were affected by the rebuild. Also contains additional dependent containers that had to be restarted.
     """
     for container in containers:
+        if only_missing and container.is_built:
+            logging.info("Skipping {name}, because it is already built".format(name=container.name))
+            continue
         container.rebuild(ignore_cache)
     # TODO dummy test before restarting real system
     return restart_many(containers)
@@ -855,7 +901,10 @@ def restart_many(requested_containers):
             # container is only a meta container, not really started
             continue
         if container in stop_containers or not container.is_running():
-            container.start()
+            try:
+                container.start()
+            except ImageNotFound as exc:
+                print_fatal(str(exc))
     return start_containers
 
 
@@ -893,8 +942,11 @@ def stop_many(requested_containers, message_restart=False):
 
 
 def need_package_updates(containers):
-    """ return all of the given containers that need package updates """
-    return [container for container in containers if container.needs_package_updates()]
+    """Return all of the given containers that need package updates."""
+    try:
+        return [container for container in containers if container.needs_package_updates()]
+    except ImageNotFound as exc:
+        print_fatal(str(exc))
 
 
 def cleanup_containers(min_age_days=0, simulate=False):
@@ -1007,21 +1059,23 @@ def print_status_and_exit(given_containers, other_instance_running=False, out_fo
         too, which may cause the failures
     """
     status_report_list = get_status(given_containers)
-    failed_containers = any((
-        1 if status_report.status == ContainerStatus.FAILED else 0
+    failed_containers = any(
+        1 if status_report.status in (ContainerStatus.FAILED, ContainerStatus.MISSING) else 0
         for status_report in status_report_list
-    ))
+    )
 
     if out_format == 'ascii':
         for container_name, status, msg in status_report_list:
             if status == ContainerStatus.OKAY:
-                print_success('[ ok ] %s: %s' % (container_name, msg))
+                print_success('[ ok ] {0}: {1}'.format(container_name, msg))
             elif status == ContainerStatus.STARTING:
-                print_notice('[wait] %s: %s' % (container_name, msg))
+                print_notice('[wait] {0}: {1}'.format(container_name, msg))
             elif status == ContainerStatus.FAILED:
-                print_warning('[fail] %s: %s' % (container_name, msg))
+                print_warning('[fail] {0}: {1}'.format(container_name, msg))
+            elif status == ContainerStatus.MISSING:
+                print_warning('[miss] {0}: {1}'.format(container_name, msg))
             else:
-                raise ValueError('Invalid status %s' % container_status)
+                raise ValueError('Invalid status {0} for {1}'.format(container_status, container_name))
     elif out_format == 'json':
         print(json.dumps(status_report_list))
     else:
@@ -1144,7 +1198,7 @@ def main():
             )
 
     if arguments["rebuild"]:
-        affected_containers = rebuild_many(given_containers, ignore_cache=bool(arguments["--no-cache"]))
+        affected_containers = rebuild_many(given_containers, ignore_cache=bool(arguments["--no-cache"]), only_missing=bool(arguments["--missing"]))
         time.sleep(DEFAULT_STARTUP_GRACETIME)
         print_status_and_exit(affected_containers)
     elif arguments["restart"]:
@@ -1165,7 +1219,10 @@ def main():
     elif arguments["stop"]:
         stop_many(given_containers)
     elif arguments["shell"]:
-        given_containers[0].interactive_shell(arguments["--new-instance"])
+        try:
+            given_containers[0].interactive_shell(arguments["--new-instance"])
+        except ImageNotFound as exc:
+            print_fatal(str(exc))
     elif arguments["log"]:
         given_containers[0].logs(follow=arguments["-f"])
     elif arguments["cleanup"]:
