@@ -61,7 +61,6 @@ If the containers argument is not given, the command refers to all containers in
 import datetime
 import logging
 import os
-import re
 import socket
 import subprocess
 import sys
@@ -69,7 +68,6 @@ import time
 from copy import copy
 from collections import namedtuple
 from distutils.version import LooseVersion
-from fcntl import LOCK_EX, LOCK_NB, flock
 import json
 
 import dateutil.parser
@@ -82,8 +80,8 @@ from pidfilemanager import AlreadyRunning, PidFileManager
 
 # switch off strange python requests warnings and log output
 requests.packages.urllib3.disable_warnings()
-requests_log = logging.getLogger("requests")
-requests_log.setLevel(logging.WARNING)
+REQUESTS_LOG = logging.getLogger("requests")
+REQUESTS_LOG.setLevel(logging.WARNING)
 
 # time to wait between starting containers and checking the status
 DEFAULT_STARTUP_GRACETIME = 2
@@ -120,7 +118,7 @@ class ImageNotFound(Exception):
 
 def exec_verbose(cmd, return_output=False):
     """
-    run a command, and print infos about that to the terminal and log.
+    Run a command, and print infos about that to the terminal and log.
 
     :param bool return_output: return output as string, don't print it to the terminal.
     """
@@ -133,8 +131,8 @@ def exec_verbose(cmd, return_output=False):
 def cprint(text, file=None, **options):
     """
     Print colored text for output on interactive terminals.
-    Automatically disabled if the output is not a TTY.
 
+    Automatically disabled if the output is not a TTY.
     See ``termcolor.cprint`` for documentation on the parameters.
     """
     if file is None:
@@ -147,8 +145,8 @@ def cprint(text, file=None, **options):
 def colored(text, **options):
     """
     Color the text for output on interactive terminals.
-    Automatically disabled if the output is not a TTY.
 
+    Automatically disabled if the output is not a TTY.
     See ``termcolor.colored`` for documentation on the parameters.
     """
     if sys.stdout.isatty() and sys.stderr.isatty():
@@ -158,28 +156,28 @@ def colored(text, **options):
 
 
 def print_success(text):
-    """print positive information and success messages"""
+    """Print positive information and success messages."""
     cprint(text, attrs=['bold'], color='green')
 
 
 def print_notice(text):
-    """print information which is between good and bad, e.g. "container is still starting..." """
+    """Print information which is between good and bad, e.g. "container is still starting..."."""
     cprint(text, attrs=['bold'], color='yellow')
 
 
 def print_warning(text):
-    """print negative information, errors, "container stopped", ... """
+    """Print negative information, errors, "container stopped", ... """
     cprint(text, attrs=['bold'], color='red', file=sys.stderr)
 
 
 def print_fatal(text):
-    """print fatal errors and immediately exit"""
+    """Print fatal errors and immediately exit."""
     cprint(text, attrs=['bold'], color='red', file=sys.stderr)
     sys.exit(1)
 
 
 def print_bold(text):
-    """print neutral but important information"""
+    """Print neutral but important information."""
     cprint(text, attrs=['bold'])
 
 
@@ -206,7 +204,7 @@ def docker_version_geq(version):
 
 class AbstractTest(object):
     def run(self, container_instance):
-        """ run the test. May print error messages if something is not right.
+        """Run the test. May print error messages if something is not right.
 
         :param container_instance: instance of the current container
         :rtype: bool
@@ -264,8 +262,8 @@ class DockerShellTest(AbstractTest):
     def __init__(self, shell_cmd, timeout=TCP_TIMEOUT):
         """
         Test which runs a shell command with ``docker exec`` and tests for return value equal to zero.
-        Only supported for docker containers.
 
+        Only supported for docker containers.
         :param str shell_cmd:
             shell command for testing, e.g.
             ``hello | grep -q world``
@@ -277,7 +275,7 @@ class DockerShellTest(AbstractTest):
 
     def run(self, container_instance):
         """
-        run the test. See AbstractTest.run()
+        Run the test. See AbstractTest.run().
 
         :type container_instance: DockerContainer
         :return: status
@@ -390,7 +388,7 @@ class AbstractContainer(object):
 
     def needs_package_updates(self):
         """
-        Run a check for package updates
+        Run a check for package updates.
 
         :return: ``True`` if any packages could be updated
         :rtype: bool
@@ -416,7 +414,9 @@ class CustomBuildscriptTask(AbstractContainer):
 class MonitoringTask(AbstractContainer):
     def __init__(self, name):
         """
-        pseudo-'container' that only runs tests, nothing else. Can be used for monitoring external services from kastenwesen status.
+        Pseudo-'container' that only runs tests, nothing else.
+
+        Can be used for monitoring external services from kastenwesen status.
         """
         AbstractContainer.__init__(self, name, only_build=True)
 
@@ -424,8 +424,8 @@ class MonitoringTask(AbstractContainer):
 class DockerDatetime(object):
     def __init__(self, value):
         """
-        Convert a datetime representation from the docker API into suitable
-        python objects.
+        Convert a datetime representation from the docker API into suitable python objects.
+
         Most functions take a ``default`` argument to control what is returned
         if the Docker API returns the pseudo-date ``0001-01-01T00:00:00Z``.
 
@@ -445,7 +445,7 @@ class DockerDatetime(object):
     # but we try to be as transparent and similar as possible.
 
     def __bool__(self):
-        """ evaluate as logical ``False`` if the Docker API returns the pseudo-date ``0001-01-01T00:00:00Z``. """
+        """Evaluate as logical ``False`` if the Docker API returns the pseudo-date ``0001-01-01T00:00:00Z``."""
         return bool(self.date)
 
     def __str__(self):
@@ -457,7 +457,8 @@ class DockerDatetime(object):
         return self.date or default
 
     def timedelta_to_now(self, default=None):
-        """ difference between the datetime and the system time.
+        """Difference between the datetime and the system time.
+
         Positive if the date is in the past."""
         if self.date is None:
             return default
@@ -465,7 +466,8 @@ class DockerDatetime(object):
             return datetime.datetime.utcnow() - self.date
 
     def seconds_to_now(self, default=float('inf')):
-        """ seconds between the datetime and the system time.
+        """Seconds between the datetime and the system time.
+
         Positive if the date is in the past."""
         delta = self.timedelta_to_now()
         if delta is None:
@@ -488,7 +490,9 @@ class DockerContainer(AbstractContainer):
         self.alias_tags = alias_tags or []
 
     def add_link(self, link_to_container):
-        """Add a link to the given container. The link alias will be the container name given in the config, so you can directly reach the container under its name."""
+        """Add a link to the given container.
+
+        The link alias will be the container name given in the config, so you can directly reach the container under its name."""
         assert isinstance(link_to_container, DockerContainer)
         self.links.append(link_to_container)
 
@@ -506,7 +510,7 @@ class DockerContainer(AbstractContainer):
 
     def add_port(self, host_port, container_port, host_addr=None, test=True, udp=False):
         """
-        forward incoming connections on host_addr:host_post to container_port inside the container.
+        Forward incoming connections on host_addr:host_post to container_port inside the container.
 
         :param boolean test:
             test for an open TCP server on the port, raise error if nothing is listening there.
@@ -555,7 +559,7 @@ class DockerContainer(AbstractContainer):
             )
 
     def running_container_id(self):
-        """ return id of last known container instance, or False otherwise"""
+        """Return id of last known container instance, or False otherwise"""
         # the running id file is written by `docker run --cidfile <file>` in .start()
         try:
             return open(
@@ -754,7 +758,7 @@ class DockerContainer(AbstractContainer):
                 " {image_name}" \
                 " /usr/local/kastenwesen_tmp/python-wrapper.sh" \
                 " /usr/local/kastenwesen_tmp/check_for_updates.py".format(
-                    new_name = new_name,
+                    new_name=new_name,
                     docker_options=self._get_docker_options(),
                     vol_opts=',Z' if get_selinux_status() == 'enforcing' else '',
                     kastenwesen_path=kastenwesen_path,
@@ -792,7 +796,7 @@ class DockerContainer(AbstractContainer):
                 " --label de.fau.fablab.kastenwesen.temporary=True" \
                 " --name={new_name} {docker_options}" \
                 " {image_name} bash".format(
-                    new_name = new_name,
+                    new_name=new_name,
                     docker_options=self._get_docker_options(),
                     image_name=self.image_name,
                 )
@@ -815,7 +819,7 @@ def rebuild_many(containers, ignore_cache=False, only_missing=False):
     """
     for container in containers:
         if only_missing and container.is_built:
-            logging.info("Skipping {name}, because it is already built".format(name=container.name))
+            logging.info("Skipping %s, because it is already built", container.name)
             continue
         container.rebuild(ignore_cache)
     # TODO dummy test before restarting real system
