@@ -24,8 +24,8 @@ kastenwesen: a python tool for managing multiple docker containers
 
 Usage:
   kastenwesen [help]
-  kastenwesen (start|restart|stop) [<container>...]
   kastenwesen status [<container>...] [--cron]
+  kastenwesen (start|stop|restart) [<container>...]
   kastenwesen rebuild [--no-cache] [--missing] [<container>...]
   kastenwesen check-for-updates [--auto-upgrade] [<container>...]
   kastenwesen shell [--new-instance] <container>
@@ -37,16 +37,23 @@ Options:
 
 Actions explained:
   status: show status
-  rebuild: rebuild and restart. Takes care of dependencies. --no-cache: Force rebuild of all layers. --missing: skip images that are already built
-  stop: stop a container or stop all containers. Also stops dependent containers (e.g. web application is stopped if you stop its database container)
-  start: inverse of stop. Due to the way how docker links work, some additional containers will automatically be restarted to fix links.
+  start: inverse of stop.
+            Due to the way how docker links work,
+            some additional containers will automatically be restarted to fix links.
+  stop: stop a container or stop all containers.
+            Also stops dependent containers
+            (e.g. web application is stopped if you stop its database container)
   restart: stop and start again
-  shell: exec a shell inside the running container, or inside a separate instance of this image if using --new-instance
+  rebuild: rebuild and restart.
+            Takes care of dependencies.
+            --no-cache: Force rebuild of all layers.
+            --missing: skip images that are already built
+  check-for-updates: Check if there are updates for this image
+            --auto-upgrade: Also trigger a rebuilt to apply this updates
+            (auto-upgrade can be disabled by setting disable_auto_upgrade=True in kastenwesen_config)
+  shell: exec a shell inside the running container,
+            or inside a separate instance of this image if using --new-instance
   cleanup: carefully remove old containers and images that are no longer used
-
-If check-for-updates is called with option --auto-upgrade, the upgrade will be triggered automatically.
-This can be prevented by disabling it in kastenwesen_config.py. If disabled auto-upgrade will be automatically skipped
-in non-interactive shells.
 
 If the containers argument is not given, the command refers to all containers in the config.
 """
