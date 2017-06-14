@@ -211,6 +211,15 @@ def detect_flapping_and_changes(status_history_list):
     return changes_to_report, current_status_list
 
 
+def get_bad_containers(status_report_list):
+    """Return a list of container names with problems."""
+    return [
+        container_report.container_name
+        for container_report in status_report_list
+        if container_report.overall_status != ContainerStatus.OKAY
+    ]
+
+
 def main():
     """Update HTML page and send emails on status changes."""
     os.makedirs(STATUS_DIR, exist_ok=True)
@@ -221,8 +230,19 @@ def main():
     # detect flapping
     changes_to_report, current_status_list = detect_flapping_and_changes(status_history_list)
     current_status_list = sorted(current_status_list)
+    # create meaningful title
+    title = '{fdqn} kastenwesen status'.format(fdqn=socket.getfqdn())
+    bad_containers = get_bad_containers(current_status_list)
+    if bad_containers:
+        title += ' (broken: {lst})'.format(
+            lst=', '.join(
+                bad_containers[:2] + ['and {} more'.format(len(bad_containers) - 2)]
+                if len(bad_containers) > 3
+                else bad_containers
+            )
+        )
+
     # convert json to text/html and update html page
-    title = '%s kastenwesen status' % socket.getfqdn()
     content_html = format_status(current_status_list, out_format='html')
     content_text = format_status(current_status_list, out_format='ascii')
     update_html_page(content_html, stderr, title)
