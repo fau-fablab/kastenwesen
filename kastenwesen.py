@@ -25,8 +25,8 @@ kastenwesen: a python tool for managing multiple docker containers
 Usage:
   kastenwesen [help]
   kastenwesen status [<container>...] [--cron]
-  kastenwesen (start|stop|restart) [<container>...]
-  kastenwesen rebuild [--no-cache] [--missing] [<container>...]
+  kastenwesen (start|stop|restart) [--ignore-dependencies] [<container>...]
+  kastenwesen rebuild [--no-cache] [--missing] [--ignore-dependencies] [<container>...]
   kastenwesen check-for-updates [--auto-upgrade] [<container>...]
   kastenwesen shell [--new-instance] <container>
   kastenwesen log [-f] <container>
@@ -40,16 +40,18 @@ Actions explained:
   start: inverse of stop.
             Due to the way how docker links work,
             some additional containers will automatically be restarted to fix links.
+            If this is not possible, use --ignore-dependencies to suppress errors and bring up the container in a partly-working state.
   stop: stop a container or stop all containers.
             Also stops dependent containers
             (e.g. web application is stopped if you stop its database container)
+            --ignore-dependencies: Don't stop dependent containers, but rather leave them in a partly-working state.
   restart: stop and start again
   rebuild: rebuild and restart.
             Takes care of dependencies.
             --no-cache: Force rebuild of all layers.
             --missing: skip images that are already built
   check-for-updates: Check if there are updates for this image
-            --auto-upgrade: Also trigger a rebuilt to apply this updates
+            --auto-upgrade: Also trigger a rebuild to apply these updates
             (auto-upgrade can be disabled by setting disable_auto_upgrade=True in kastenwesen_config)
   shell: exec a shell inside the running container,
             or inside a separate instance of this image if using --new-instance
@@ -592,10 +594,12 @@ class DockerContainer(AbstractContainer):
         docker_options = ""
         for linked_container in self.links:
             if not linked_container.is_running():
-                # linked container isn't running. This will only happen if startup of one container fails.
+                # linked container isn't running. This will only happen if startup of one container fails, or if --missing-dependencies is used.
+                # FIXME: There is a race condition (time-of-check vs time-of-use) between .is_running() and the docker command execution-
+                # If the container dies inbetween, the docker command will fail.
                 print_warning(
                     "linked container {} is not running - container {} "
-                    "will be missing this link until being restarted!"
+                    "will be missing this link until it is restarted!"
                     .format(linked_container.name, self.name)
                 )
                 continue
@@ -811,12 +815,13 @@ class DockerContainer(AbstractContainer):
         exec_verbose(cmd)
 
 
-def rebuild_many(containers, ignore_cache=False, only_missing=False):
+def rebuild_many(containers, ignore_cache=False, only_missing=False, ignore_dependencies=False):
     """ rebuild given containers
 
     :param list[AbstractContainer] containers: containers to rebuild
     :param bool ignore_cache: use ``--no-cache`` in docker build to ensure that external dependencies are fresh
-    :param only_missing rebuild only containers if there is no image on the local system
+    :param bool only_missing: rebuild only containers if there is no image on the local system
+    :param bool ignore_dependencies: do not stop/start dependent containers
     :return list[AbstractContainer]: all containers that were affected by the rebuild. Also contains additional dependent containers that had to be restarted.
     """
     for container in containers:
@@ -824,8 +829,7 @@ def rebuild_many(containers, ignore_cache=False, only_missing=False):
             logging.info("Skipping %s, because it is already built", container.name)
             continue
         container.rebuild(ignore_cache)
-    # TODO dummy test before restarting real system
-    return restart_many(containers)
+    return restart_many(containers, ignore_dependencies=ignore_dependencies)
 
 
 def ordered_by_dependency(containers, add_dependencies=False, add_reverse_dependencies=False):
@@ -883,15 +887,16 @@ def ordered_by_dependency(containers, add_dependencies=False, add_reverse_depend
     return ordered_containers
 
 
-def restart_many(requested_containers):
+def restart_many(requested_containers, ignore_dependencies=False):
     """
     Restart given containers, and if necessary also their dependencies and reverse dependencies.
 
-    :param list[AbstractContainer] containers: containers to restart
+    :param list[AbstractContainer] requested_containers: containers to restart
+    :param bool ignore_dependencies: do not stop/start dependent containers
     :return list[AbstractContainer]: all containers that were affected. Also contains additional dependent containers that had to be (re)started.
     """
     # also restart the containers that will be broken by this:
-    stop_containers = stop_many(requested_containers, message_restart=True)
+    stop_containers = stop_many(requested_containers, message_restart=True, ignore_dependencies=ignore_dependencies)
 
     start_containers = ordered_by_dependency(stop_containers, add_dependencies=True)
     added_dep_containers = [container for container in start_containers if container not in stop_containers]
@@ -910,26 +915,30 @@ def restart_many(requested_containers):
             try:
                 container.start()
             except ImageNotFound as exc:
-                print_fatal(str(exc))
+                if ignore_dependencies:
+                    print_warning("Ignoring missing dependency:")
+                    print_warning(str(exc))
+                else:
+                    print_fatal(str(exc) + " Use --ignore-dependencies to skip this error.")
     return start_containers
 
 
-def stop_many(requested_containers, message_restart=False):
+def stop_many(requested_containers, message_restart=False, ignore_dependencies=False):
     """
     Stop the given containers and all that that depend on them (i.e. are linked to them)
 
-    :param containers: List of containers
-    :type containers: list[AbstractContainer]
-    :rtype: list[AbstractContainer]
-    :return: list of all containers that were stopped
-             (includes the ones stopped because of dependencies)
-
+    :param requested_containers: List of containers
+    :type requested_containers: list[AbstractContainer]
     :param bool message_restart:
         Will the containers be restarted later?
         This only affects the log output, not the actions taken
+    :param bool ignore_dependencies: do not stop/start dependent containers
+    :rtype: list[AbstractContainer]
+    :return: list of all containers that were stopped
+             (includes the ones stopped because of dependencies)
     """
 
-    stop_containers = list(reversed(ordered_by_dependency(requested_containers, add_reverse_dependencies=True)))
+    stop_containers = list(reversed(ordered_by_dependency(requested_containers, add_reverse_dependencies=not ignore_dependencies)))
     added_dep_containers = [
         container for container in stop_containers
         if container not in requested_containers and container.is_running()
@@ -1214,11 +1223,11 @@ def main():
             )
 
     if arguments["rebuild"]:
-        affected_containers = rebuild_many(given_containers, ignore_cache=bool(arguments["--no-cache"]), only_missing=bool(arguments["--missing"]))
+        affected_containers = rebuild_many(given_containers, ignore_cache=bool(arguments["--no-cache"]), only_missing=bool(arguments["--missing"]), ignore_dependencies=bool(arguments["--ignore-dependencies"]))
         time.sleep(DEFAULT_STARTUP_GRACETIME)
         print_status_and_exit(affected_containers)
     elif arguments["restart"]:
-        restart_many(given_containers)
+        restart_many(given_containers, ignore_dependencies=bool(arguments["--ignore-dependencies"]))
         time.sleep(DEFAULT_STARTUP_GRACETIME)
         print_status_and_exit(given_containers)
     elif arguments["status"]:
@@ -1228,12 +1237,13 @@ def main():
             out_format='json' if arguments['--cron'] else 'ascii',
         )
     elif arguments["start"]:
-        restart_many(container for container in given_containers
-                     if not (container.is_running() or container.only_build))
+        restart_many([container for container in given_containers
+                     if not (container.is_running() or container.only_build)],
+                     ignore_dependencies=bool(arguments["--ignore-dependencies"]))
         time.sleep(DEFAULT_STARTUP_GRACETIME)
         print_status_and_exit(given_containers)
     elif arguments["stop"]:
-        stop_many(given_containers)
+        stop_many(given_containers, ignore_dependencies=bool(arguments["--ignore-dependencies"]))
     elif arguments["shell"]:
         try:
             given_containers[0].interactive_shell(arguments["--new-instance"])
