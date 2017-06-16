@@ -214,13 +214,16 @@ class AbstractTest(object):
 
 
 class URLTest(AbstractTest):
-    def __init__(self, url, verify_ssl_cert=True):
+    def __init__(self, url, verify_ssl_cert=True, timeout=None):
+        if timeout is None:
+            timeout = TCP_TIMEOUT
+        self.timeout = timeout
         self.url = url
         self.verify_ssl_cert = verify_ssl_cert
 
     def run(self, container_instance):
         try:
-            t = requests.get(self.url, verify=self.verify_ssl_cert, timeout=TCP_TIMEOUT)
+            t = requests.get(self.url, verify=self.verify_ssl_cert, timeout=self.timeout)
             t.raise_for_status()
         except IOError as e:
             logging.error("Test failed for HTTP %s: %s", self.url, e)
@@ -229,14 +232,17 @@ class URLTest(AbstractTest):
 
 
 class TCPPortTest(AbstractTest):
-    def __init__(self, port, host=None, expect_data=True):
+    def __init__(self, port, host=None, expect_data=True, timeout=None):
+        if timeout is None:
+            timeout = TCP_TIMEOUT
+        self.timeout = timeout
         self.port = port
         self.host = host or 'localhost'
         self.expect_data = expect_data
 
     def run(self, container_instance):
         try:
-            sock = socket.create_connection((self.host, self.port), timeout=TCP_TIMEOUT)
+            sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
         except IOError:
             logging.error("Connection failed for TCP host %s port %s", self.host, self.port)
             return False
