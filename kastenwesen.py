@@ -642,7 +642,6 @@ class DockerContainer(AbstractContainer):
                 image_name=self.image_name,
             )
         print_bold("Starting container {}".format(new_name))
-        logging.info("Starting %s container: %s", self.name, cmd)
         exec_verbose(cmd)
         self._set_running_container_name(new_name)
 
