@@ -83,9 +83,14 @@ def get_new_status():
         # another instance of kastenwesen is currently running -> no output
         status_report_dict = {}
     else:
+        try:
+            json_data = json.loads(stdout)
+        except json.decoder.JSONDecodeError:
+            raise Exception("Failed to get kastenwesen status. returncode {}, stderr:\n{}"
+                            .format(proc.returncode, proc.stderr.decode('utf8')));
         status_report_dict = {
             container_name: (status, msg)
-            for container_name, status, msg in json.loads(stdout)
+            for container_name, status, msg in json_data
         }
 
     return (
