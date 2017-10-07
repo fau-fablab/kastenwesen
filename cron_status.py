@@ -235,9 +235,10 @@ def main():
     # detect flapping
     changes_to_report, current_status_list = detect_flapping_and_changes(status_history_list)
     current_status_list = sorted(current_status_list)
-    # create meaningful title
-    title = '{fdqn} kastenwesen status'.format(fdqn=socket.getfqdn())
     bad_containers = get_bad_containers(current_status_list)
+    # create meaningful title
+    icon = '❌' if bad_containers else '✅'
+    title = '{icon}{fdqn} kastenwesen status'.format(icon=icon, fdqn=socket.getfqdn())
     if bad_containers:
         title += ' (broken: {lst})'.format(
             lst=', '.join(
