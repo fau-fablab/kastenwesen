@@ -69,6 +69,16 @@ class ContainerStatus(kastenwesen.ContainerStatus):
     FLAPPING = "FLAPPING"
     UNKNOWN = 'UNKNOWN'
 
+def is_shutting_down():
+    """Return True if the system is currently shutting down"""
+    try:
+        # query systemd, ignore returncode
+        proc = subprocess.run("systemctl is-system-running".split(), stdout=subprocess.PIPE)
+        stdout = proc.stdout.decode('utf8').strip()
+        return (stdout == "stopping")
+    except FileNotFoundError:
+        # systemctl not found
+        return False
 
 def get_new_status():
     """Return the current status of kastenwesen."""
@@ -253,8 +263,8 @@ def main():
     content_text = format_status(current_status_list, out_format='ascii')
     update_html_page(content_html, stderr, title)
     # send mail if needed
-    if returncode == 42:
-        # another instance is running.
+    if returncode == 42 or is_shutting_down():
+        # another kastenwesen instance is running, or the system is shutting down
         # Never send mails during that.
         # Also do not save the status history to make sure that no relevant change mails are suppressed.
         exit()
