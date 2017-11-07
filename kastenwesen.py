@@ -59,22 +59,22 @@ If the containers argument is not given, the command refers to all containers in
 """
 
 import datetime
+import json
 import logging
 import os
 import socket
 import subprocess
 import sys
 import time
-from copy import copy
 from collections import namedtuple
+from copy import copy
 from distutils.version import LooseVersion
-import json
 
 import dateutil.parser
 import docker
 import requests
-from docopt import docopt
 import termcolor
+from docopt import docopt
 
 from pidfilemanager import AlreadyRunning, PidFileManager
 
@@ -88,6 +88,7 @@ DEFAULT_STARTUP_GRACETIME = 2
 
 # default TCP timeout for tests
 TCP_TIMEOUT = 2
+HTTP_TIMEOUT = 5
 
 SELINUX_STATUS = None
 
@@ -203,8 +204,8 @@ def docker_version_geq(version):
 
 
 class AbstractTest(object):
-    def run(self, container_instance):
-        """Run the test. May print error messages if something is not right.
+    def __call__(self, container_instance):
+        """Run the test. May print error messages if something is not ok.
 
         :param container_instance: instance of the current container
         :rtype: bool
@@ -213,15 +214,13 @@ class AbstractTest(object):
         return False
 
 
-class URLTest(AbstractTest):
-    def __init__(self, url, verify_ssl_cert=True, timeout=None):
-        if timeout is None:
-            timeout = TCP_TIMEOUT
+class HTTPTest(AbstractTest):
+    def __init__(self, url, verify_ssl_cert=True, timeout=HTTP_TIMEOUT):
         self.timeout = timeout
         self.url = url
         self.verify_ssl_cert = verify_ssl_cert
 
-    def run(self, container_instance):
+    def __call__(self, container_instance):
         try:
             t = requests.get(self.url, verify=self.verify_ssl_cert, timeout=self.timeout)
             t.raise_for_status()
@@ -232,15 +231,13 @@ class URLTest(AbstractTest):
 
 
 class TCPPortTest(AbstractTest):
-    def __init__(self, port, host=None, expect_data=True, timeout=None):
-        if timeout is None:
-            timeout = TCP_TIMEOUT
+    def __init__(self, port, host=None, expect_data=True, timeout=TCP_TIMEOUT):
         self.timeout = timeout
         self.port = port
         self.host = host or 'localhost'
         self.expect_data = expect_data
 
-    def run(self, container_instance):
+    def __call__(self, container_instance):
         try:
             sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
         except IOError:
@@ -279,7 +276,7 @@ class DockerShellTest(AbstractTest):
         self.shell_cmd = shell_cmd
         self.timeout = timeout
 
-    def run(self, container_instance):
+    def __call__(self, container_instance):
         """
         Run the test. See AbstractTest.run().
 
@@ -358,7 +355,7 @@ class AbstractContainer(object):
         """Return True if all tests succeeded."""
         success = True
         for test in self.tests:
-            success = test.run(self) and success
+            success = test(self) and success
 
         # check that the container is running
         if sleep_before:

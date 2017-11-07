@@ -12,6 +12,7 @@ if os.environ.get("TRAVIS"):
     travis = True
     STARTUP_GRACETIME = 5
     TCP_TIMEOUT = 20
+    HTTP_TIMEOUT = 30
 
 #########################################
 # my_linux_base                         #
@@ -35,7 +36,7 @@ web = DockerContainer(name="webserver", path="./webserver/", sleep_before_test=2
 web.add_port(host_port=80, container_port=80)
 web.add_volume(host_path=os.getcwd() + "/webserver/webroot",
                container_path="/var/www", readonly=True)
-web.add_test(URLTest("http://localhost"))
+web.add_test(HTTPTest("http://localhost/", timeout=HTTP_TIMEOUT))
 config_containers.append(web)
 
 #########################################
@@ -47,9 +48,9 @@ test1 = DockerContainer(name="test1", path="./test1/")
 # this server doesn't answer with any data, so disable the test for the port
 test1.add_port(host_port=1231, container_port=1234, test=False)
 # some arbitrary shell tests
-test1.add_test(DockerShellTest("true"))
+test1.add_test(DockerShellTest("true", timeout=TCP_TIMEOUT))
 # this test should fail with returncode 1
-# test1.add_test(DockerShellTest("false"))
+# test1.add_test(DockerShellTest("false", timeout=TCP_TIMEOUT))
 config_containers.append(test1)
 
 #########################################
@@ -65,7 +66,7 @@ test2.add_port(host_addr="127.0.0.1", host_port=1232, container_port=1234)
 # you can test the startup gracetime by adding this always-failing test.
 # `kastenwesen status` will only return an error 20 seconds after starting the
 # container, but not before.
-# test2.add_test(DockerShellTest("false"))
+# test2.add_test(DockerShellTest("false", timeout=TCP_TIMEOUT))
 config_containers.append(test2)
 
 #########################################
