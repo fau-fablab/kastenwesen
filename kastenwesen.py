@@ -691,7 +691,7 @@ class DockerContainer(AbstractContainer):
         try:
             status = DOCKER_API_CLIENT.inspect_container(self.running_container_id())
             return status['State']['Running']
-        except docker.errors.NotFound:
+        except (docker.errors.NotFound, docker.errors.NullResource):
             return False
 
     @property
@@ -1064,7 +1064,17 @@ def print_status_and_exit(given_containers, other_instance_running=False, out_fo
         - 42: There are failed containers but an other instance is running,
         too, which may cause the failures
     """
-    status_report_list = get_status(given_containers)
+    try:
+        status_report_list = get_status(given_containers)
+    except docker.errors.APIError:
+        if other_instance_running:
+            print_warning("Cannot fetch the status, please try again later: \n"
+                          "Ignoring a Docker internal API error because another kastenwesen instance is running. \n"
+                          "(Docker API calls may fail if an image is being removed during the call.)")
+            sys.exit(42)
+        else:
+            raise
+
     failed_containers = any(
         1 if status_report.status in (ContainerStatus.FAILED, ContainerStatus.MISSING) else 0
         for status_report in status_report_list
