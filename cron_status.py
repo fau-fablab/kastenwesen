@@ -59,8 +59,6 @@ PAGE_TEMPLATE = '''
       <small>Generated on %(date)s</small>
     </h1>
     %(content_html)s
-    <h2>Stderr:</h2>
-    <pre><code>%(stderr)s</code></pre>
   </body>
 </html>
 '''
@@ -133,7 +131,7 @@ def send_mail(content_text, content_html, subject, sender, recipient):
     proc.communicate(multipart_mime.as_bytes())
 
 
-def format_status(status_report_list, out_format='html'):
+def format_status(status_report_list, stderr, out_format='html'):
     """Return status human readable in out_format format."""
     FORMAT = {
         'ascii': {
@@ -161,18 +159,21 @@ def format_status(status_report_list, out_format='html'):
     )
 
     if out_format == 'html':
-        return '<ul style="list-style:none;">\n%s\n</ul>' % '\n'.join(lines)
+        output = '<ul style="list-style:none;">\n%s\n</ul>' % '\n'.join(lines)
+        output += "<h2>Stderr:</h2>"
+        output += "<pre><code>%(stderr)s</code></pre>".format(stderr)
     elif out_format == 'ascii':
-        return '\n'.join(lines)
+        output = '\n'.join(lines)
+        output += "\n\n Stderr:\n" + stderr
+    
+    return output
 
-
-def update_html_page(content_html, stderr, title):
+def update_html_page(content_html, title):
     """Update the HTML status file."""
     page = PAGE_TEMPLATE % {
         'title': title,
         'date': datetime.now().strftime('%Y-%m-%d %H:%M'),
-        'content_html': content_html,
-        'stderr': stderr,
+        'content_html': content_html
     }
     open(os.path.join(STATUS_DIR, STATUS_HTML), 'w').write(page.strip())
 
@@ -259,9 +260,9 @@ def main():
         )
 
     # convert json to text/html and update html page
-    content_html = format_status(current_status_list, out_format='html')
-    content_text = format_status(current_status_list, out_format='ascii')
-    update_html_page(content_html, stderr, title)
+    content_html = format_status(current_status_list, stderr, out_format='html')
+    content_text = format_status(current_status_list, stderr, out_format='ascii')
+    update_html_page(content_html, title)
     # send mail if needed
     if returncode == 42 or is_shutting_down():
         # another kastenwesen instance is running, or the system is shutting down
