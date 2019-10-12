@@ -264,7 +264,7 @@ class TCPPortTest(AbstractTest):
 
 
 class DockerShellTest(AbstractTest):
-    def __init__(self, shell_cmd, timeout=TCP_TIMEOUT):
+    def __init__(self, shell_cmd, timeout=HTTP_TIMEOUT):
         """
         Test which runs a shell command with ``docker exec`` and tests for return value equal to zero.
 
