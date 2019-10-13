@@ -161,7 +161,7 @@ def format_status(status_report_list, stderr, out_format='html'):
     if out_format == 'html':
         output = '<ul style="list-style:none;">\n%s\n</ul>' % '\n'.join(lines)
         output += "<h2>Stderr:</h2>"
-        output += "<pre><code>%(stderr)s</code></pre>".format(stderr)
+        output += "<pre><code>" + stderr + "</code></pre>"
     elif out_format == 'ascii':
         output = '\n'.join(lines)
         output += "\n\n Stderr:\n" + stderr
