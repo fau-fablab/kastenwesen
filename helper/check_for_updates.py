@@ -38,11 +38,26 @@ def _print_error(msg):
 def apt_updates():
     """return a list of updates using apt"""
     # apt-get update
+
     cache = apt.Cache()
     try:
         cache.update()
     except apt.cache.LockFailedException:
         _print_error("Failed to get lock for apt-get update. Are you root?")
+    except apt.cache.FetchFailedException:
+        print("Warning: apt update failed, deleting cache and retrying...", file=sys.stderr)
+        # NOTE: the following should suppress warnings/errors of apt-get update in dependent containers
+        # because docker's overlayfs behaves weird on some operations
+        # ("W: Problem unlinking the file /var/cache/apt/archives/partial/.apt-acquire-privs-test.Ccx1E4 - IsAccessibleBySandboxUser (13: Permission denied)")
+        #, see :
+        #   - https://github.com/moby/moby/issues/38076
+        #   - https://docs.docker.com/storage/storagedriver/overlayfs-driver/#limitations-on-overlayfs-compatibility
+        #   - related: https://bugzilla.redhat.com/show_bug.cgi?id=1213602#c11
+        # This workaround causes apt update to always update every mirror.
+        subprocess.check_call("rm -rf /var/lib/apt/lists".split(" "))
+        subprocess.check_call("apt-get -q update".split(" "), stdout=sys.stderr)
+        cache = apt.Cache()
+        cache.update()
 
     # reload cache
     cache.close()
