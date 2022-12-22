@@ -71,6 +71,7 @@ import time
 from collections import namedtuple
 from copy import copy
 from distutils.version import LooseVersion
+import concurrent.futures
 
 import dateutil.parser
 import docker
@@ -91,6 +92,9 @@ DEFAULT_STARTUP_GRACETIME = 2
 # default TCP timeout for tests
 TCP_TIMEOUT = 2
 HTTP_TIMEOUT = 5
+
+# parallelization of status tests: how many containers are checked in parallel
+NUM_PARALLEL_TESTS = 99
 
 SELINUX_STATUS = None
 
@@ -1056,10 +1060,13 @@ def get_status(given_containers):
     [(container_name, status, msg), ...]
     """
     StatusReport = namedtuple('StatusReport', ['container_name', 'status', 'msg'])
-    return sorted([
-        StatusReport(container.name, *container.get_status(sleep_before=False))
-        for container in given_containers
-    ], key=lambda x: str.lower(x.container_name))
+    def get_statusreport_from_container(container):
+        return StatusReport(container.name, *container.get_status(sleep_before=False))
+    # parallelized version of:
+    #    status = [ get_statusreport_from_container(container) for container in given_containers ]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=NUM_PARALLEL_TESTS) as executor:
+        status = executor.map(get_statusreport_from_container, given_containers)
+    return sorted(status, key=lambda x: str.lower(x.container_name))
 
 
 def print_status_and_exit(given_containers, other_instance_running=False, out_format='ascii'):
