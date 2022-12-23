@@ -90,8 +90,8 @@ REQUESTS_LOG.setLevel(logging.WARNING)
 DEFAULT_STARTUP_GRACETIME = 2
 
 # default TCP timeout for tests
-TCP_TIMEOUT = 2
-HTTP_TIMEOUT = 5
+TCP_TIMEOUT = 5
+HTTP_TIMEOUT = 10
 
 # parallelization of status tests: how many containers are checked in parallel
 NUM_PARALLEL_TESTS = 99
