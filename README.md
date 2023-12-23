@@ -17,7 +17,7 @@ Even more is possible: You can use kastenwesen inside a VM, or even on travis.or
 # Testing it inside a vagrant VM
 
 If you don't want to run the commands on your PC, you can set up a VM. (Docker inside docker will usually not work if you have AppArmor etc. configured securely)
-A bootstrapping script tested for Ubuntu 14.04 and 16.01 is available at install_dependencies_ubuntu.sh . It should not contain anything Ubuntu specific. If you are using other distributions, please give feedback whether it works for you.
+A bootstrapping script tested for Ubuntu 22 or Debian 12 is available at install_dependencies_ubuntu.sh . If you are using other distributions, please give feedback whether it works for you.
 
 # Setting up a VM with vagrant:
 

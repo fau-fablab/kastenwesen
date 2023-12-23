@@ -70,7 +70,7 @@ import sys
 import time
 from collections import namedtuple
 from copy import copy
-from distutils.version import LooseVersion
+from packaging.version import Version
 import concurrent.futures
 
 import dateutil.parser
@@ -206,7 +206,7 @@ def get_selinux_status():
 
 def docker_version_geq(version):
     """Return True, if the version of docker is at least `version`."""
-    return LooseVersion(DOCKER_API_CLIENT.version()['Version']) >= version
+    return Version(DOCKER_API_CLIENT.version()['Version']) >= Version(version)
 
 
 class AbstractTest(object):
