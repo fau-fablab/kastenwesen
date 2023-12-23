@@ -8,3 +8,8 @@
 # IDE and OS
 .directory
 .idea/
+*.orig
+
+# kastenwesen status files
+*.running_container_id
+*.running_container_id_previous
