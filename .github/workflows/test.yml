@@ -1,0 +1,24 @@
+name: Run tests
+
+on:
+  push:
+    branches: [ ]
+  pull_request:
+    branches: [ ]
+
+jobs:
+  test:
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: sudo ./install_dependencies_ubuntu.sh
+
+      - name: Run tests
+        run: sudo ./example-config/run_tests.py
+
+        
