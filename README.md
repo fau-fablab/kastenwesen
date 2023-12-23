@@ -1,8 +1,6 @@
 # Kastenwesen ╰［°‿°］╯
 
-[![Build Status](https://travis-ci.org/fau-fablab/kastenwesen.svg?branch=master)](https://travis-ci.org/fau-fablab/kastenwesen)
-
-A python script for managing multiple docker containers on a server.
+A python script for managing multiple docker containers on a server. Roughly equivalent to a simplified version of docker-compose, plus status monitoring and automatic rebuilds on security updates.
 
 Imagine your server has multiple services that you want to separate and manage using docker.
 
@@ -12,7 +10,7 @@ Imagine your server has multiple services that you want to separate and manage u
 - You still understand what this script is doing, because all executed docker commands are shown in the output. You could always run these yourself if something goes wrong.
 - If there is a security update for a package that some of your containers depend on, simply run ``kastenwesen rebuild --no-cache``, so that docker's cache is not used and the fresh package is downloaded.
 
-Even more is possible: You can use kastenwesen inside a VM, or even on travis.org, to test your server config before it goes live.
+Even more is possible: You can use kastenwesen inside a VM, or even in a CI pipeline, to test your server config before it goes live.
 
 # Testing it inside a vagrant VM
 
@@ -42,7 +40,11 @@ curl localhost
 
 # Continuous integration
 
-For travis-ci, a demo .travis.yml file is provided. You at least want to run `kastenwesen rebuild` in your CI build.
+If you want to check your server config in CI before deploying, you can find some notes in this section.
 
-Because of docker, the build needs root privilege. If you want to use Vagrant in a custom CI setup or for developer testing to ensure that your config is correct before going into production, a sample Vagrantfile and kastenwesen_vagrant_test_build.py build script are provided.
+You at least want to run `kastenwesen rebuild` in your CI build, wait some time (depending on the configured startup gracetime) and then check `kastenwesen status`.
+
+As a starting point for using GitHub actions, see the CI files .github/ in this repository.
+
+Because of docker and of permissions for the status directory /var/lib/kastenwesen, the build needs root privilege. If you want to use Vagrant in a custom CI setup or for developer testing to ensure that your config is correct before going into production, a sample Vagrantfile and kastenwesen_vagrant_test_build.py build script are provided.
 

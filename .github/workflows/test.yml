@@ -18,7 +18,10 @@ jobs:
       - name: Install dependencies
         run: sudo ./install_dependencies_ubuntu.sh
 
-      - name: Run tests
+      - name: Run low-level unittests
+        run: python3 -m unittest
+
+      - name: Run high-level tests on example config
         run: sudo ./example-config/run_tests.py
 
         

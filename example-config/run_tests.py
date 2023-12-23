@@ -6,12 +6,8 @@ import time
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
 
-EXTRA_SLEEP = 0
-if os.environ.get("TRAVIS"):
-    print("\nOh hi Travis, how are you? I will go slowly on your machines in order to prevent failing tests.\n")
-    travis = True
-    EXTRA_SLEEP = 5
-
+# extra sleep time in seconds. Must be higher than DEFAULT_STARTUP_GRACETIME. Some extra time can be helpful to work around race-condition bugs in the docker daemon.
+EXTRA_SLEEP = 3
 
 def diagnostics():
     # extra diagnostics output at each build step
