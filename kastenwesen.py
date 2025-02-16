@@ -1311,8 +1311,7 @@ if __name__ == "__main__":
 
     os.makedirs(STATUS_FILES_DIR, mode=0o755, exist_ok=True)
 
-    # TODO hardcoded to the lower docker API version to run with ubuntu 14.04
-    DOCKER_API_CLIENT = docker.Client(base_url='unix://var/run/docker.sock', version='1.12')
+    DOCKER_API_CLIENT = docker.Client(base_url='unix://var/run/docker.sock', version='1.45')
     if not os.path.isfile("kastenwesen_config.py"):
         print_fatal("No 'kastenwesen_config.py' found in the current directory or in '{0}'".format(os.getcwd()))
 
