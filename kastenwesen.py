@@ -1032,7 +1032,7 @@ def cleanup_images(min_age_days=0, simulate=False, simulated_deleted_containers=
 
     dangling_images = DOCKER_API_CLIENT.images(filters={"dangling": True})
     for image in dangling_images:
-        if image['RepoTags'] != ['<none>:<none>']:
+        if image['RepoTags'] != []:
             # image is tagged, skip
             raise Exception("this should not happen, as we filtered for dangling images only")
         if image['Id'] in used_image_ids:
