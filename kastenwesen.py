@@ -81,6 +81,13 @@ from docopt import docopt
 
 from pidfilemanager import AlreadyRunning, PidFileManager
 
+try:
+    from docker.client import APIClient
+except:
+    # backwards compatibility with ancient docker-py versions, remove as soon as we have migrated to Ubuntu24.
+    from docker.client import Client as APIClient
+
+
 # switch off strange python requests warnings and log output
 requests.packages.urllib3.disable_warnings()
 REQUESTS_LOG = logging.getLogger("requests")
@@ -1311,7 +1318,7 @@ if __name__ == "__main__":
 
     os.makedirs(STATUS_FILES_DIR, mode=0o755, exist_ok=True)
 
-    DOCKER_API_CLIENT = docker.Client(base_url='unix://var/run/docker.sock', version='1.45')
+    DOCKER_API_CLIENT = APIClient(base_url='unix://var/run/docker.sock', version='1.45')
     if not os.path.isfile("kastenwesen_config.py"):
         print_fatal("No 'kastenwesen_config.py' found in the current directory or in '{0}'".format(os.getcwd()))
 
