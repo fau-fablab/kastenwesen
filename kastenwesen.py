@@ -454,7 +454,7 @@ class DockerDatetime(object):
         else:
             date = dateutil.parser.parse(value)
             # the returned timestamp is always UTC
-            date = date.replace(tzinfo=None)
+            date = date.replace(tzinfo=datetime.UTC)
             self.date = date
 
     # We cannot subclass datetime because it cannot contain the special value ``None``,
@@ -479,7 +479,7 @@ class DockerDatetime(object):
         if self.date is None:
             return default
         else:
-            return datetime.datetime.utcnow() - self.date
+            return datetime.datetime.now(datetime.UTC) - self.date
 
     def seconds_to_now(self, default=float('inf')):
         """Seconds between the datetime and the system time.
