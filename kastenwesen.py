@@ -473,6 +473,10 @@ class DockerDatetime(object):
     # a few helpful functions
 
     def to_datetime(self, default=None):
+        if self.date:
+            # Check that date is timezone-aware
+            assert date.tzinfo is not None
+            assert date.tzinfo.utcoffset(date) is not None
         return self.date or default
 
     def timedelta_to_now(self, default=None):
@@ -996,7 +1000,7 @@ def cleanup_containers(min_age_days=0, simulate=False):
         date_finished = DOCKER_API_CLIENT.inspect_container(container['Id'])['State']['FinishedAt']
         date_finished = DockerDatetime(date_finished)
         if date_finished:
-            assert date_finished.to_datetime() > datetime.datetime(2002, 1, 1)
+            assert date_finished.to_datetime() > datetime.datetime(2002, 1, 1, tzinfo=datetime.UTC)
             if date_finished.timedelta_to_now() < datetime.timedelta(days=1) * min_age_days:
                 # too young
                 continue
