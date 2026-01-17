@@ -63,7 +63,7 @@ If the containers argument is not given, the command refers to all containers in
 import datetime
 if not hasattr(datetime, "UTC"):
     # Backwards compatibility for Python 3.10 / Ubuntu 22
-    datetime.UTC = None
+    datetime.UTC = datetime.timezone.utc
 import json
 import logging
 import os
