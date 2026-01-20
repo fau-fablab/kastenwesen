@@ -475,8 +475,8 @@ class DockerDatetime(object):
     def to_datetime(self, default=None):
         if self.date:
             # Check that date is timezone-aware
-            assert date.tzinfo is not None
-            assert date.tzinfo.utcoffset(date) is not None
+            assert self.date.tzinfo is not None
+            assert self.date.tzinfo.utcoffset(self.date) is not None
         return self.date or default
 
     def timedelta_to_now(self, default=None):
